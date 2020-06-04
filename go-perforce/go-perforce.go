@@ -18,25 +18,23 @@
 package perforce
 
 import (
-	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"io/ioutil"
+ 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type Perforce struct {
 	userId				string 			// optional p4 user
 	p4Cmd 				string 			// p4 command and path
 	logWriter     io.Writer
-	debugFlg			boolean
+	debugFlg			bool
 }
 
 
@@ -47,7 +45,7 @@ func New(user string) (*Perforce, error) {
 	p := &Perforce{} // Create instance
 
 	var err error
-	p.User = user
+	p.userId = user
 	// Try accessing the command p4 to make sure it is installed and can be called
 	p.p4Cmd, err = exec.LookPath("p4")
 	if err != nil {
@@ -59,15 +57,12 @@ func New(user string) (*Perforce, error) {
 // Get a file from depot
 // 	Depot file base name expected
 // 	Revision number or 0 if head rev is needed
-//  Return the file revision number (useful in case of head revision requested)
-func (p *Perforce) GetFile(depotFile string, rev int) (fileName string, err error) {
-
-	var out []byte
-	var tempFile string
-
-	CONSTRUIRE LE FILENAME TEMPORAIRE PAS SUR QUE TOUT SOIT NECESSAIRE SI ON FAIT PAS DE SAUVEGARDE
-	GARDER LE GETHEADREV
-	OU GARDER LE LOCALFILENAME JUSTE POUR LOGGUER OU POUR RETOURNER A lA PLACE DE REVISION
+//  Return:
+//		- the file in a temp file
+//		- its 'perfore name' with revision number for info only
+//		- err code, nil if okay
+func (p *Perforce) GetFile(depotFile string, rev int) ( *os.File ,string, error) {
+	p.log("GetFile()")
 
 	fileName := filepath.Base(depotFile) // extract filename
 	ext := filepath.Ext(depotFile)       // Read extension
@@ -75,56 +70,65 @@ func (p *Perforce) GetFile(depotFile string, rev int) (fileName string, err erro
 	if rev > 0 { // If a specific version is requested
 		fileName = fileName[0:len(fileName)-len(ext)] + "#" + strconv.Itoa(rev) + ext
 	} else { // Get head rev
-		rev, err = p.GetHeadRev(depotFile, user)
+		r, err := p.GetHeadRev(depotFile)
 		if err != nil {
-			return "", err
+			return nil,"", err
 		}
-		fileName = fileName[0:len(fileName)-len(ext)] + "#" + strconv.Itoa(rev) + ext
+		fileName = fileName[0:len(fileName)-len(ext)] + "#" + strconv.Itoa(r) + ext
+	} // fileName is provided as a convenience
+
+	tempFile, err := ioutil.TempFile("", "crowdin_update")
+	if err != nil {
+	    msg := fmt.Sprintf("Unable to create a temp file - %v", err)
+			p.log(msg)
+			return nil,"", errors.New(msg)
 	}
+	defer os.Remove(tempFile.Name())
 
+	var out []byte
 
-
-
-	if len(user) > 0 {
-		out, err = exec.Command(p4Cmd, "-u", user, "print", "-k", "-q", "-o", localFileName, depotFile + "#" + strconv.Itoa(rev) ).CombinedOutput()
+	if len(p.userId) > 0 {
+		out, err = exec.Command(p.p4Cmd, "-u", p.userId, "print", "-k", "-q", "-o", tempFile.Name(), depotFile + "#" + strconv.Itoa(rev) ).CombinedOutput()
 		// fmt.Printf("P4 command line result - %s\n %s\n", err, out)
 	} else {
-		out, err = exec.Command(p4Cmd, "print", "-k", "-q", "-o", localFileName, depotFile + "#" + strconv.Itoa(rev)).CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "print", "-k", "-q", "-o", tempFile.Name(), depotFile + "#" + strconv.Itoa(rev)).CombinedOutput()
 	}
 	if err != nil {
-		fmt.Printf("P4 command line error\n%s\n%s\n", err, out)
-		return err
+		msg := fmt.Sprintf("p4 command line error %v - %v ",out, err)
+		p.log(msg)
+		return nil,"", errors.New(msg)
 	}
 
 	// Unfortunately p4 print status in linux is not reliable.
 	// err != nil when syntax err but not if file doesn't exist.
-	// So manually check if a file was created:
-	if _, err = os.Stat(localFileName); err != nil {
-		if os.IsNotExist(err) {
-			// file does not exist
-			fmt.Printf("Error - No file produced\n%s\n%s\n", err, out)
-			return err
-		} else {
-			// Can't get file stat
-			fmt.Printf("Error - can't access the status of file produced\n%s\n%s\n", err, out)
-			return err
+	// So manually checking if a file was created:
+	if _, err = os.Stat(tempFile.Name()); err != nil {
+		if os.IsNotExist(err) { // file does not exist
+			msg := fmt.Sprintf("p4 no file produced %v - %v ",out, err)
+			p.log(msg)
+			return nil,"", errors.New(msg)
+		} else { // Can't get file stat
+			msg := fmt.Sprintf("Can't access the status of file produced %v - %v ",out, err)
+			p.log(msg)
+			return nil,"", errors.New(msg)
 		}
 	}
-	return fileName, nil
+	return tempFile,fileName, nil  // everything is fine returns file and file name
 }
 
 
 // Get from P4 the head revision number of a file
 // 	depotFileName: file path and name in P4
 func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
+	p.log("GetHeadRev()")
 
 	var out []byte
-	if len(p.user) > 0 {
+	if len(p.userId) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + " files " + " " + depotFile + "\n")
-		out, err = exec.Command(p4Cmd, "-u", p.user, "files", depotFileName).Output()
+		out, err = exec.Command(p.p4Cmd, "-u", p.userId, "files", depotFileName).Output()
 	} else {
 		// fmt.Printf(p4Cmd + " files " + depotFileName + "\n")
-		out, err = exec.Command(p4Cmd, "files", depotFileName).Output()
+		out, err = exec.Command(p.p4Cmd, "files", depotFileName).Output()
 	}
 	if err != nil {
 		msg := fmt.Sprintf("P4 command line error - %v", err)
@@ -163,7 +167,7 @@ func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
 // 	Execute p4 info command - recommended to check connection to server
 func (p *Perforce) P4Info() (output string, err error) {
 	p.log("P4Info()")
-	out, err := exec.Command(p4Cmd, "info").Output()
+	out, err := exec.Command(p.p4Cmd, "info").Output()
 	if err != nil {
 		msg := fmt.Sprintf("\"p4 info\" exec error: %v", err)
 		p.log(msg)
