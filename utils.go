@@ -30,7 +30,7 @@ func (p *Perforce) GetFile(depotFile string, rev int) ( tempFile *os.File ,fileN
 
 	if rev > 0 { // If a specific version is requested
 		fileName = fileName[0:len(fileName)-len(ext)] + "#" + strconv.Itoa(rev) + ext
-	} else { // Get head rev
+	} else {    // Get head rev
 		rev, err = p.GetHeadRev(depotFile)
 		if err != nil {
 			return tempFile,fileName, err
@@ -40,7 +40,7 @@ func (p *Perforce) GetFile(depotFile string, rev int) ( tempFile *os.File ,fileN
 
 	p.log(fmt.Sprintf("fileName=%s rev=%d\n",fileName, rev))
 
-	tempFile, err = ioutil.TempFile("", "crowdin_update")
+	tempFile, err = ioutil.TempFile("", "perforce_getfile_")
 	if err != nil {
 			return tempFile,fileName, errors.New(fmt.Sprintf("Unable to create a temp file - %v", err))
 	}
