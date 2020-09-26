@@ -19,7 +19,7 @@ import (
 // 	Revision number or 0 if head rev is needed
 //  The caller needs to dispose of the temp file
 //  Return:
-//		- the file in a temp file
+//		- the file in a temp file in os.TempDir()
 //		- its 'perfore name' with revision number for info only
 //		- err code, nil if okay
 func (p *Perforce) GetFile(depotFile string, rev int) ( tempFile *os.File ,fileName string, err error) {
@@ -112,4 +112,75 @@ func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
 	}
 
 	return rev, nil
+}
+
+
+// Get content from a pending Change List
+// Do a: p4 -uxxxxx describe 6102201
+// 	Input:
+//		- Change List number
+//  Return:
+//		- a map of files (depot path and name) and rev numbers
+//		- err code, nil if okay
+/*
+Change 6102201 by xxxx@yyyyyyyy on 2020/09/20 21:02:41 *pending*
+
+	Test diff
+
+Affected files ...
+
+... //zzzzzz/dev/locScriptTesting/main_french.json#1 edit
+... //zzzzzz/dev/locScriptTesting/yy_french.txt#18 edit
+... //zzzzzz/dev/locScriptTesting/yy_german.txt#8 edit
+
+*/
+//
+func (p *Perforce) GetPendingCLContent(changeList int) ( m_files map[string]int,  err error) {
+	p.log("GetChangeListContent()")
+
+	var out []byte
+	m_files = make(map[string]int)
+
+	if len(p.user) > 0 {
+		// fmt.Printf(p4Cmd + " -u " + user + " describe " + " " + strconv.Itoa(changeList) + "\n")
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "describe", strconv.Itoa(changeList)).CombinedOutput()
+		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
+	} else {
+		//fmt.Printf(p.p4Cmd  + " describe " + " " + strconv.Itoa(changeList) + "\n")
+		out, err = exec.Command(p.p4Cmd, "describe", strconv.Itoa(changeList)).CombinedOutput()
+		// out, err := exec.Command(p.p4Cmd, "info").Output()
+	}
+	if err != nil {
+		return m_files, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+	}
+
+	// Interpreting P4 response - expecting it to be in a specific format
+	cue1 := "Affected files ..."
+	cue2 := "... //"
+	idx := strings.Index(string(out), cue1)
+	if idx == -1 {
+		return m_files, errors.New(fmt.Sprintf("Error interpreting P4 response - missing field %s in out=%s", cue1, out))
+	}
+	idx = strings.Index(string(out), cue2)
+	if idx == -1 {
+		return m_files, errors.New(fmt.Sprintf("Error interpreting P4 response - missing field %s in out=%s", cue2, out))
+	}
+
+	lines := strings.Split(string(out[idx:]),"\n")
+	for _, line := range lines {
+		fmt.Printf("line %s\n", line)
+		if strings.Index(line, cue2) == -1 { // If there is no "... //" we're done
+			break
+		}
+		fields := strings.Fields(line)
+		fileAndVersion := strings.Split(fields[1],"#")
+		file := fileAndVersion[0]
+		version,err :=  strconv.Atoi(fileAndVersion[1])
+		if err !=nil || len(file) <= 0 || version <= 0 {
+			return m_files, errors.New(fmt.Sprintf("Error interpreting P4 response - file details %s in out=%s", line, out))
+		}
+		m_files[file] = version // populate the map
+	}
+	return m_files, nil
+
 }
