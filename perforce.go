@@ -28,20 +28,21 @@ import (
 
 type Perforce struct {
 	user				string 			// optional p4 user
+	workspace		string 			// optional p4 workspace (required by some functions)
 	p4Cmd 			string 			// p4 command and path
 	logWriter   io.Writer
 	debug				bool
 }
 
-
 // Create an instance
 // - lookup path to p4 command
 // - Returns instance and error code
-func New(user string) (*Perforce, error) {
+func New(user string, workspace string) (*Perforce, error) {
 	p := &Perforce{} // Create instance
 
 	var err error
 	p.user = user
+	p.workspace = workspace
 	// Try accessing the command p4 to make sure it is installed and can be called
 	p.p4Cmd, err = exec.LookPath("p4")
 	if err != nil {
@@ -51,7 +52,25 @@ func New(user string) (*Perforce, error) {
 	return p, nil
 }
 
+// SetUser()
+func (p *Perforce) SetUser(user string) {
+	p.user = user
+}
 
+// SetWorkspace()
+func (p *Perforce) SetWorkspace(workspace string) {
+	p.workspace = workspace
+}
+
+// GetUser()
+func (p *Perforce) GetUser()(user string) {
+	return(p.user)
+}
+
+// GetWorkspace()
+func (p *Perforce) GetWorkspace()(workspace string) {
+	return(p.workspace)
+}
 
 // ---------------------------------------
 // Debug functions
