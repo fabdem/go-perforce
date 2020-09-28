@@ -289,9 +289,11 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) ( diffedFileInDepot s
 	if (strings.Index(lines[1],"add") == -1)||(strings.Index(lines[2],"deleted") == -1)||(strings.Index(lines[3],"changed") == -1) {
 		return "","",0,0,0, errors.New(fmt.Sprintf("3 - P4 command line - parsing error in:\n%s\n%s\n%s\n out=%s\n",lines,out))
 	}
-	addLine := strings.Fields(lines[0])
-	removeLine := strings.Fields(lines[1])
-	changeLine := strings.Fields(lines[2])
+	addLine := strings.Fields(lines[1])
+	removeLine := strings.Fields(lines[2])
+	changeLine := strings.Fields(lines[3])
+
+	//fmt.Printf("addLine:%v\nremoveLine:%v\nchangeLine:%v\n",addLine,removeLine,changeLine)
 	if (len(addLine) < 4)||(len(removeLine) < 4)||(len(changeLine) < 5) {
 		return "","",0,0,0, errors.New(fmt.Sprintf("4 - P4 command line - parsing error out=%s\n",out))
 	}
@@ -300,7 +302,7 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) ( diffedFileInDepot s
 	removedLines,err2 = strconv.Atoi(removeLine[3])
 	changedLines1,err3 := strconv.Atoi(changeLine[3])
 	changedLines2,err4 := strconv.Atoi(changeLine[5])
-	changedLines = changedLines1 + changedLines2
+	changedLines = changedLines1 + changedLines2  // Not too clear how p4 compute this - see https://community.perforce.com/s/article/10639 
 	if (err1 != nil)||(err2 != nil)||(err3 != nil)||(err4 != nil) {
 		return "","",0,0,0, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n",out))
 	}
