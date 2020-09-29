@@ -21,7 +21,7 @@ import (
 //  The caller needs to dispose of the temp file
 //  Return:
 //		- the file in a temp file in os.TempDir()
-//		- its 'perfore name' with revision number for info only
+//		- its 'perfore name' with revision number for info. This is not the temp file name
 //		- err code, nil if okay
 func (p *Perforce) GetFile(depotFile string, rev int) ( tempFile *os.File ,fileName string, err error) {
 	p.log("GetFile()\n")
@@ -302,7 +302,7 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) ( diffedFileInDepot s
 	removedLines,err2 = strconv.Atoi(removeLine[3])
 	changedLines1,err3 := strconv.Atoi(changeLine[3])
 	changedLines2,err4 := strconv.Atoi(changeLine[5])
-	changedLines = changedLines1 + changedLines2  // Not too clear how p4 compute this - see https://community.perforce.com/s/article/10639 
+	changedLines = changedLines1 + changedLines2  // Not too clear how p4 compute this - see https://community.perforce.com/s/article/10639
 	if (err1 != nil)||(err2 != nil)||(err3 != nil)||(err4 != nil) {
 		return "","",0,0,0, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n",out))
 	}
