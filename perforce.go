@@ -27,11 +27,12 @@ import (
 )
 
 type Perforce struct {
-	user				string 			// optional p4 user
-	workspace		string 			// optional p4 workspace (required by some functions)
-	p4Cmd 			string 			// p4 command and path
-	logWriter   io.Writer
-	debug				bool
+	user						string 			// optional p4 user
+	workspace				string 			// optional p4 workspace (required by some functions)
+	p4Cmd 					string 			// p4 command and path
+	logWriter   		io.Writer
+	debug						bool
+	diffignorespace	bool				// when set diff ignore spaces and eol
 }
 
 // Create an instance
@@ -70,6 +71,21 @@ func (p *Perforce) GetUser()(user string) {
 // GetWorkspace()
 func (p *Perforce) GetWorkspace()(workspace string) {
 	return(p.workspace)
+}
+
+// SetDiffIgnoreSpace()
+func (p *Perforce) SetDiffIgnoreSpace() {
+	p.diffignorespace = true
+}
+
+// SetDiffIgnoreSpace()
+func (p *Perforce) ResetDiffIgnoreSpace() {
+	p.diffignorespace = false
+}
+
+// GetDiffIgnoreSpace()
+func (p *Perforce) GetDiffIgnoreSpace()(flag bool) {
+	return(p.diffignorespace)
 }
 
 // ---------------------------------------

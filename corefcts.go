@@ -217,6 +217,7 @@ func (p *Perforce) GetPendingCLContent(changeList int) ( m_files map[string]int,
 //	p4 diff returns a number of added, modified and deleted lines.
 // 	Do a: p4 -uxxxxx -wyyyyy diff //workspacefile
 //	A workspace name needs to be defined
+//  If p.diffignorespace is set changes in spaces and eol will be ignored.
 // 	Input:
 //		- File in depot to diff - p4 will automatically determine workspace path
 //  Return:
@@ -233,17 +234,21 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) ( diffedFileInDepot s
 	p.log("DiffHeadnWorkspace()\n")
 
 	var out []byte
+	option := "-ds"  // Summary output
+	if p.diffignorespace {
+		option += "b" // plus changes within spaces will be ignored
+	}
 
 	if len(p.workspace) <= 0 {
 		return "","",0,0,0,errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
 	}
 	if len(p.user) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -ds " + " " + aFileInDepot + "\n")
-		out, err = exec.Command(p.p4Cmd, "-u", p.user,"-c", p.workspace, "diff","-ds", aFileInDepot).CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "-u", p.user,"-c", p.workspace, "diff",option, aFileInDepot).CombinedOutput()
 		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
 	} else {
 		// fmt.Printf(p4Cmd + " -c " + workspace + " diff -ds " + " " + aFileInDepot + "\n")
-		out, err = exec.Command(p.p4Cmd,"-c", p.workspace, "diff","-ds", aFileInDepot).CombinedOutput()
+		out, err = exec.Command(p.p4Cmd,"-c", p.workspace, "diff","option", aFileInDepot).CombinedOutput()
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
