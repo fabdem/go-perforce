@@ -194,7 +194,7 @@ func (p *Perforce) GetPendingCLContent(changeList int) ( m_files map[string]int,
 
 	lines := strings.Split(string(out[idx:]),"\n")
 	for _, line := range lines {
-		fmt.Printf("line %s\n", line)
+		// fmt.Printf("line %s\n", line)
 		if strings.Index(line, cue3) == -1 { // If there is no "... //" we're done
 			break
 		}
