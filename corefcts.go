@@ -14,7 +14,43 @@ import (
 	"strings"
 )
 
-// GetFiile()
+
+// GetP4Where()
+//	Get workspace filename and path of a file from depot
+// 	Depot path and filename expected
+//
+//  Returns:
+//		- filename and path in workspace
+//		- err code, nil if okay
+//
+func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
+	p.log(fmt.Sprintf("GetP4Where(%s)\n",depotFile))
+
+	var out []byte
+
+	if len(p.user) > 0 {
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "where", depotFile).CombinedOutput()
+		// fmt.Printf("P4 command line result - %s\n %s\n", err, out)
+	} else {
+		out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "where", depotFile).CombinedOutput()
+	}
+	if err != nil {
+		return fileName, errors.New(fmt.Sprintf("p4 command line error %s - %s ", err, out))
+	}
+
+	// Parse result
+	name := filepath.Base(depotFile) // extract filenameyi9
+	name = "/" + name + " "
+	fields := strings.Split(string(out), name)
+	if len(fields) < 3 {
+		return fileName, errors.New(fmt.Sprintf("p4 command line parsing result error %s - %s ", err, fields))
+	}
+	fileName = fields[2]
+
+	return fileName, nil
+}
+
+// GetFile()
 //	Get a file from depot
 // 	Depot file base name expected
 // 	Revision number or 0 if head rev is needed
@@ -238,6 +274,7 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 
 // DiffHeadnWorkspace()
 // 	Diff head rev and workspace in simplified form.
+//  Uses by default perforce own diff.
 //	p4 diff returns a number of added, modified and deleted lines.
 // 	Do a: p4 -uxxxxx -wyyyyy diff //workspacefile
 //	A workspace name needs to be defined
@@ -335,6 +372,35 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (diffedFileInDepot st
 	if (err1 != nil) || (err2 != nil) || (err3 != nil) || (err4 != nil) {
 		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
 	}
+
+	return diffedFileInDepot, diffedFileInWorkspace, addedLines, removedLines, changedLines, nil
+}
+
+
+
+// CustomDiffHeadnWorkspace()
+// 	Custom diff head rev and workspace in simplified form.
+//
+//  Simple algo to produce a view of the overall amount of changes (line count)
+//	between a file in the workspace and its latest version in depot.
+//
+//	p4 diff returns:
+//			- the number of deleted and/or modified lines in previous version and,
+//			- the number of added and/or modified lines in the version in workspace
+//
+//	A workspace name needs to be defined
+//  If p.diffignorespace is set changes in spaces and eol will be ignored.
+// 	Input:
+//		- File in depot to diff - p4 will automatically determine workspace path
+//  Return:
+//		- added, deleted and modified number of lines
+//		- err code, nil if okay
+
+func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (diffedFileInDepot string, diffedFileInWorkspace string, addedLines int, removedLines int, changedLines int, err error) {
+	p.log("CustomDiffHeadnWorkspace()\n")
+
+	// TBD
+
 
 	return diffedFileInDepot, diffedFileInWorkspace, addedLines, removedLines, changedLines, nil
 }
