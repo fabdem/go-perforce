@@ -3,6 +3,7 @@ package perforce
 // Publicly available high level functions
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -46,6 +47,7 @@ func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
 		return fileName, errors.New(fmt.Sprintf("p4 command line parsing result error %s - %s ", err, fields))
 	}
 	fileName = fields[2]
+	fileName = strings.Trim(fields[2], "\r\n")
 
 	return fileName, nil
 }
@@ -59,7 +61,7 @@ func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
 //		- the file in a temp file in os.TempDir()
 //		- its 'perfore name' with revision number for info. This is not the temp file name
 //		- err code, nil if okay
-func (p *Perforce) GetFile(depotFile string, rev int) (tempFile *os.File, fileName string, err error) {
+func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName string, err error) {
 	p.log("GetFile()\n")
 
 	fileName = filepath.Base(depotFile) // extract filename
@@ -77,19 +79,21 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile *os.File, fileNa
 
 	p.log(fmt.Sprintf("fileName=%s rev=%d\n", fileName, rev))
 
-	tempFile, err = ioutil.TempFile("", "perforce_getfile_")
+	tempf, err := ioutil.TempFile("", "perforce_getfile_")
 	if err != nil {
 		return tempFile, fileName, errors.New(fmt.Sprintf("Unable to create a temp file - %v", err))
 	}
-	defer tempFile.Close()
+	defer tempf.Close()
+
+	tempFile = tempf.Name()
 
 	var out []byte
 
 	if len(p.user) > 0 {
-		out, err = exec.Command(p.p4Cmd, "-u", p.user, "print", "-k", "-q", "-o", tempFile.Name(), depotFile+"#"+strconv.Itoa(rev)).CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "print", "-k", "-q", "-o", tempFile, depotFile+"#"+strconv.Itoa(rev)).CombinedOutput()
 		// fmt.Printf("P4 command line result - %s\n %s\n", err, out)
 	} else {
-		out, err = exec.Command(p.p4Cmd, "print", "-k", "-q", "-o", tempFile.Name(), depotFile+"#"+strconv.Itoa(rev)).CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "print", "-k", "-q", "-o", tempFile, depotFile+"#"+strconv.Itoa(rev)).CombinedOutput()
 	}
 	if err != nil {
 		return tempFile, fileName, errors.New(fmt.Sprintf("p4 command line error %s - %s ", err, out))
@@ -100,7 +104,7 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile *os.File, fileNa
 	// Unfortunately p4 print status in linux is not reliable.
 	// err != nil when syntax err but not if file doesn't exist.
 	// So manually checking if a file was created:
-	if _, err = os.Stat(tempFile.Name()); err != nil {
+	if _, err = os.Stat(tempf.Name()); err != nil {
 		if os.IsNotExist(err) { // file does not exist
 			return tempFile, fileName, errors.New(fmt.Sprintf("P4 no file created %v - %v ", out, err))
 		} else { // Can't get file stat
@@ -291,7 +295,7 @@ add 3 chunks 8 lines
 deleted 2 chunks 7 lines
 changed 1 chunks 1 / 2 lines
 */
-func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (diffedFileInDepot string, diffedFileInWorkspace string, addedLines int, removedLines int, changedLines int, err error) {
+func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (fileHR string, fileWS string, addedLines int, removedLines int, changedLines int, err error) {
 	p.log("DiffHeadnWorkspace()\n")
 
 	var out []byte
@@ -332,8 +336,8 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (diffedFileInDepot st
 	if len(fields) < 2 {
 		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("P4 command line - parsing error in %s\n out=%s", line, out))
 	}
-	diffedFileInDepot = fields[0]
-	diffedFileInWorkspace = fields[1]
+	fileHR = fields[0]
+	fileWS = fields[1]
 
 	fields = strings.Split(string(out), cue3) // Split to get section with line stats
 	if len(fields) < 2 {
@@ -373,7 +377,7 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (diffedFileInDepot st
 		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
 	}
 
-	return diffedFileInDepot, diffedFileInWorkspace, addedLines, removedLines, changedLines, nil
+	return fileHR, fileWS, addedLines, removedLines, changedLines, nil
 }
 
 
@@ -393,14 +397,81 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (diffedFileInDepot st
 // 	Input:
 //		- File in depot to diff - p4 will automatically determine workspace path
 //  Return:
+//		- name of file head
+//		- name file in workspace
 //		- added, deleted and modified number of lines
 //		- err code, nil if okay
 
-func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (diffedFileInDepot string, diffedFileInWorkspace string, addedLines int, removedLines int, changedLines int, err error) {
-	p.log("CustomDiffHeadnWorkspace()\n")
+func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (fileHR string, nbLinesHR int, fileWS string, nbLinesWS int, addedModLines int, removedModLines int, err error) {
+	p.log(fmt.Sprintf("CustomDiffHeadnWorkspace(%s)\n",aFileInDepot))
 
-	// TBD
+	// Get head revision file
+	tempHR,fileHR,err := p.GetFile(aFileInDepot, 0)
+	fmt.Printf("headRev=%s\n",fileHR)
+	if err != nil {
+		fmt.Printf("\nError getting head rev: %s %s\n", fileHR, err)
+		os.Exit(1)
+	}
+	//tempName := tempHR.Name()
+	tempf, err := os.Open(tempHR)
+	if err != nil {
+		fmt.Printf("\nError opening head rev: %s %s\n", tempHR, err)
+		os.Exit(1)
+	}
+	defer tempf.Close()
 
+	// Get workspace file
+  fileWS,err = p.GetP4Where(aFileInDepot)
+	if err != nil {
+		fmt.Printf("\nError %s\n", err)
+		os.Exit(1)
+	}
+	fileInWS, err := os.Open(fileWS) // File is directly accessible
+	fmt.Printf("file in workspace=%s\n",fileWS)
+	if err != nil {
+		fmt.Printf("\nError accessing file in workspace: %s %s\n", fileWS, err)
+		os.Exit(1)
+	}
+	defer fileInWS.Close()
 
-	return diffedFileInDepot, diffedFileInWorkspace, addedLines, removedLines, changedLines, nil
+	// Diff head revision and workspace file
+	//  Read all head rev in a map [string]int
+	m_lines := make(map[string]int)
+	scanner := bufio.NewScanner(tempf)
+	for scanner.Scan() {
+		m_lines[scanner.Text()]++
+		nbLinesHR++
+	}
+	p.log(fmt.Sprintf("	Head rev file - nb lines read %d)\n",nbLinesHR))
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("\nError parsing head rev file: %s %s\n", tempHR, err)
+		os.Exit(1)
+	}
+
+	//	Read workspace and compare
+	scanner = bufio.NewScanner(fileInWS)
+	for scanner.Scan() {
+		if nb, ok := m_lines[scanner.Text()]; ok { // if line found
+			if nb <= 0 {
+				addedModLines++  // There are more occurrences of this line in new file
+			} else {
+				m_lines[scanner.Text()]--
+			}
+		} else {	// if line not found
+			addedModLines++  // This line didn't exist in old file
+		}
+		nbLinesWS++
+	}
+	p.log(fmt.Sprintf("	Workspace file - nb lines read %d)\n",nbLinesWS))
+
+	// Check what's left in the map
+	for _, v := range m_lines {
+		removedModLines += v		// Accrue here number of modified or deleted lines from headrev
+	}
+
+	// Delete temp head rev file
+	err = os.Remove(tempHR)
+	if err != nil {p.log(fmt.Sprintf("Error deleting temp file %s %s)\n",tempHR, err))} // Non fatal error
+
+	return fileHR , nbLinesHR , fileWS , nbLinesWS , addedModLines, removedModLines, nil
 }
