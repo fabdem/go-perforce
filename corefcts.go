@@ -388,26 +388,33 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (fileHR string, fileW
 //  Simple algo to produce a view of the overall amount of changes (line count)
 //	between a file in the workspace and its latest version in depot.
 //
+// 	There is no specific processing depending on encoding but works with utf8 and utf16.
+//
 //	p4 diff returns:
 //			- the number of deleted and/or modified lines in previous version and,
 //			- the number of added and/or modified lines in the version in workspace
 //
 //	A workspace name needs to be defined
-//  If p.diffignorespace is set changes in spaces and eol will be ignored.
+//
+//  If p.diffignorespace is set changes in spaces, tabs and line endings will be ignored.
+//	However, works only with utf8 encoding.
+//
 // 	Input:
 //		- File in depot to diff - p4 will automatically determine workspace path
 //  Return:
-//		- name of file head
-//		- name file in workspace
-//		- added, deleted and modified number of lines
-//		- err code, nil if okay
+//		- Name of file head rev
+//		- Number of line file head rev
+//		- Name file in workspace
+//		- Number of line file file in workspace
+//		- Added, deleted and modified number of lines
+//		- Err code, nil if okay
 
 func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (fileHR string, nbLinesHR int, fileWS string, nbLinesWS int, addedModLines int, removedModLines int, err error) {
 	p.log(fmt.Sprintf("CustomDiffHeadnWorkspace(%s)\n",aFileInDepot))
 
 	// Get head revision file
 	tempHR,fileHR,err := p.GetFile(aFileInDepot, 0)
-	fmt.Printf("headRev=%s\n",fileHR)
+	p.log(fmt.Sprintf("	Head Rev=%s\n",fileHR))
 	if err != nil {
 		fmt.Printf("\nError getting head rev: %s %s\n", fileHR, err)
 		os.Exit(1)
@@ -427,7 +434,7 @@ func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (fileHR string,
 		os.Exit(1)
 	}
 	fileInWS, err := os.Open(fileWS) // File is directly accessible
-	fmt.Printf("file in workspace=%s\n",fileWS)
+	p.log(fmt.Sprintf("	File in WS=%s\n",fileWS))
 	if err != nil {
 		fmt.Printf("\nError accessing file in workspace: %s %s\n", fileWS, err)
 		os.Exit(1)
@@ -439,7 +446,9 @@ func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (fileHR string,
 	m_lines := make(map[string]int)
 	scanner := bufio.NewScanner(tempf)
 	for scanner.Scan() {
-		m_lines[scanner.Text()]++
+		line := scanner.Text()
+		if p.diffignorespace { line = strings.Trim(line," \t\r\n")}
+		m_lines[line]++
 		nbLinesHR++
 	}
 	p.log(fmt.Sprintf("	Head rev file - nb lines read %d)\n",nbLinesHR))
@@ -451,11 +460,13 @@ func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (fileHR string,
 	//	Read workspace and compare
 	scanner = bufio.NewScanner(fileInWS)
 	for scanner.Scan() {
-		if nb, ok := m_lines[scanner.Text()]; ok { // if line found
+		line := scanner.Text()
+		if p.diffignorespace { line = strings.Trim(line," \t\r\n")}
+		if nb, ok := m_lines[line]; ok { // if line found
 			if nb <= 0 {
 				addedModLines++  // There are more occurrences of this line in new file
 			} else {
-				m_lines[scanner.Text()]--
+				m_lines[line]--
 			}
 		} else {	// if line not found
 			addedModLines++  // This line didn't exist in old file
