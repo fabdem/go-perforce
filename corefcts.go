@@ -79,13 +79,12 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName
 
 	p.log(fmt.Sprintf("fileName=%s rev=%d\n", fileName, rev))
 
-	tempf, err := ioutil.TempFile("", "perforce_getfile_")
+	tempf, err := ioutil.TempFile("", "perforce_getfile_")  // Create a temporary file placeholder.
 	if err != nil {
 		return tempFile, fileName, errors.New(fmt.Sprintf("Unable to create a temp file - %v", err))
 	}
-	defer tempf.Close()
-
 	tempFile = tempf.Name()
+	tempf.Close()
 
 	var out []byte
 
@@ -104,7 +103,7 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName
 	// Unfortunately p4 print status in linux is not reliable.
 	// err != nil when syntax err but not if file doesn't exist.
 	// So manually checking if a file was created:
-	if _, err = os.Stat(tempf.Name()); err != nil {
+	if _, err = os.Stat(tempFile); err != nil {
 		if os.IsNotExist(err) { // file does not exist
 			return tempFile, fileName, errors.New(fmt.Sprintf("P4 no file created %v - %v ", out, err))
 		} else { // Can't get file stat
