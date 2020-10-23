@@ -9,7 +9,6 @@ package perforce
 
 // New()                create an instance/workspace
 
-
 import (
 	"errors"
 	"fmt"
