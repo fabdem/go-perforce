@@ -275,9 +275,9 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 	return m_files, sUSER, sWS, nil
 }
 
-// DiffHeadnWorkspace()
+// P4Diff()
 // 	Diff head rev and workspace in simplified form.
-//  Uses by default perforce own diff.
+//  Uses perforce p4 diff with option summary and ignore line endings.
 //	p4 diff returns a number of added, modified and deleted lines.
 // 	Do a: p4 -uxxxxx -wyyyyy diff //workspacefile
 //	A workspace name needs to be defined
@@ -287,24 +287,36 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 //  Return:
 //		- added, deleted and modified number of lines
 //		- err code, nil if okay
+//
+//  To be noted that utf16 encoded files are correctly processed.
+//
+//
 /*
 p4 -ca_workspace -ua_user diff -ds //path_and_name_of_a_file_in_depot
 ==== path_and_name_of_a_file_in_depot - path_and_name_of_a_file_in_workspace ====
 add 3 chunks 8 lines
 deleted 2 chunks 7 lines
-changed 1 chunks 1 / 2 lines
+changed 1 chunks 3 / 3 lines
 */
-func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (fileHR string, fileWS string, addedLines int, removedLines int, changedLines int, err error) {
+type T_p4DiffRes struct {
+	fileHR				string
+	fileWS				string
+	addedLines		int
+	removedLines	int
+	changedLines	int
+}
+
+func (p *Perforce) P4Diff(aFileInDepot string) (res T_p4DiffRes, err error) {
 	p.log("DiffHeadnWorkspace()\n")
 
 	var out []byte
-	option := "-ds" // Summary output
+	option := "-dls" // Summary output and ignore line endings
 	if p.diffignorespace {
 		option += "b" // plus changes within spaces will be ignored
 	}
 
 	if len(p.workspace) <= 0 {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
+		return res, errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
 	}
 	if len(p.user) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -ds " + " " + aFileInDepot + "\n")
@@ -316,7 +328,7 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (fileHR string, fileW
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+		return res, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
 	// Parse result
@@ -326,57 +338,62 @@ func (p *Perforce) DiffHeadnWorkspace(aFileInDepot string) (fileHR string, fileW
 	cue4 := " - "
 	fields := strings.Split(string(out), cue1)
 	if len(fields) < 1 {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("P4 command line - parsing error  out=%s", out))
+		return res, errors.New(fmt.Sprintf("P4 command line - parsing error  out=%s", out))
 	}
 	line := fields[1]                     // 1st line is supposed to contain path of files in depot and workspace.
 	line = strings.TrimPrefix(line, cue2) // Isolate paths
 	line = strings.TrimSuffix(line, cue3)
 	fields = strings.Split(line, cue4)
 	if len(fields) < 2 {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("P4 command line - parsing error in %s\n out=%s", line, out))
+		return res, errors.New(fmt.Sprintf("P4 command line - parsing error in %s\n out=%s", line, out))
 	}
-	fileHR = fields[0]
-	fileWS = fields[1]
+	fileHR := fields[0]
+	fileWS := fields[1]
 
 	fields = strings.Split(string(out), cue3) // Split to get section with line stats
 	if len(fields) < 2 {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("1 - P4 command line - parsing error in out=%s\n", out))
+		return res, errors.New(fmt.Sprintf("1 - P4 command line - parsing error in out=%s\n", out))
 	}
 	// fmt.Printf("\n\n\nfields[1]\n%s\n\n",fields[1])
 
 	lines := strings.Split(fields[1], "\n") // Get the section with line stats
 	if len(lines) < 4 {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("2 - P4 command line - parsing error in %s\n out=%s\n", lines, out))
+		return res, errors.New(fmt.Sprintf("2 - P4 command line - parsing error in %s\n out=%s\n", lines, out))
 	}
 	// fmt.Printf("\n\nlines[]\n%s\n%s\n%s\n",lines[1],lines[2],lines[3])
 
 	/*
 		add 3 chunks 8 lines
 		deleted 2 chunks 7 lines
-		changed 1 chunks 1 / 2 lines
+		changed 1 chunks 3 / 3 lines
 	*/
 	if (strings.Index(lines[1], "add") == -1) || (strings.Index(lines[2], "deleted") == -1) || (strings.Index(lines[3], "changed") == -1) {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("3 - P4 command line - parsing error in:\n%s\n%s\n%s\n out=%s\n", lines, out))
+		return res, errors.New(fmt.Sprintf("3 - P4 command line - parsing error in:\n%s\n%s\n%s\n out=%s\n", lines, out))
 	}
 	addLine := strings.Fields(lines[1])
 	removeLine := strings.Fields(lines[2])
 	changeLine := strings.Fields(lines[3])
 
 	//fmt.Printf("addLine:%v\nremoveLine:%v\nchangeLine:%v\n",addLine,removeLine,changeLine)
-	if (len(addLine) < 4) || (len(removeLine) < 4) || (len(changeLine) < 5) {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("4 - P4 command line - parsing error out=%s\n", out))
+	if (len(addLine) < 5) || (len(removeLine) < 5) || (len(changeLine) < 7) {
+		return res, errors.New(fmt.Sprintf("4 - P4 command line - parsing error out=%s\n", out))
 	}
-	var err1, err2, err3, err4 error
-	addedLines, err1 = strconv.Atoi(addLine[3])
-	removedLines, err2 = strconv.Atoi(removeLine[3])
-	changedLines1, err3 := strconv.Atoi(changeLine[3])
-	changedLines2, err4 := strconv.Atoi(changeLine[5])
-	changedLines = changedLines1 + changedLines2 // Not too clear how p4 compute this - see https://community.perforce.com/s/article/10639
-	if (err1 != nil) || (err2 != nil) || (err3 != nil) || (err4 != nil) {
-		return "", "", 0, 0, 0, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
+	var err1, err2, err3 /*, err4 */ error
+	addedLines, err1 := strconv.Atoi(addLine[3])
+	removedLines, err2 := strconv.Atoi(removeLine[3])
+	// changedLines1, err4 := strconv.Atoi(changeLine[3])
+	changedLines, err3 := strconv.Atoi(changeLine[5])
+	if (err1 != nil) || (err2 != nil) || (err3 != nil) /* || (err4 != nil) */ {
+		return res, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
 	}
 
-	return fileHR, fileWS, addedLines, removedLines, changedLines, nil
+	res.fileHR =				fileHR
+	res.fileWS =				fileWS
+	res.addedLines =		addedLines
+	res.removedLines =	removedLines
+	res.changedLines =	changedLines
+
+	return res, nil
 }
 
 
