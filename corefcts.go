@@ -206,6 +206,7 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 	cue6 := "... "
 	cue7 := "#"
 	cue8 := " edit"
+	cue9 := " add"
 
 	// Get sCL
 	r, _ := regexp.Compile(cue1 + `\d+` + cue2)
@@ -244,7 +245,7 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 
 	// Prep regexs
 	r_file, _ := regexp.Compile(cue6 + `//[^` + cue7 + `]+` + cue7)
-	r_rev, _ := regexp.Compile(cue7 + `\d+` + cue8)
+	r_rev, _ := regexp.Compile(cue7 + `\d+(` + cue8 + `|` + cue9 + `)`)  
 
 	lines := strings.Split(string(out[idx:]), "\n")
 
@@ -258,7 +259,11 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 
 		sREV := r_rev.FindString(line)
 		sREV = strings.TrimPrefix(sREV, cue7)
-		sREV = strings.TrimSuffix(sREV, cue8)
+		if strings.Index(sREV, cue8) != -1 {
+			sREV = strings.TrimSuffix(sREV, cue8)
+		} else {
+			sREV = strings.TrimSuffix(sREV, cue9)
+		}
 		// fmt.Printf("REV=%s\n",sREV)
 
 		if sFILE == "" || sREV == "" { // If empty we're done
