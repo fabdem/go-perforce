@@ -139,6 +139,8 @@ func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
 		return 0, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
+	p.log(fmt.Sprintf("received from P4: %s", out))
+
 	// Read version
 	// e.g. //Project/dev/localization/afile_bulgarian.txt#8 - edit change 4924099 (utf16)
 	idxBeg := strings.LastIndex(string(out), "#") + len("#")
