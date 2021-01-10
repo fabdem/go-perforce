@@ -16,10 +16,10 @@ import (
 )
 
 
-// Implementation of p4 diff (based on "p4 diff")
+// Implementation of diff (based on "p4 diff")
 // Get the workspace files
-// Counts it number of lines and report if encoding is utf16 and line endings are cr/lf
-// If it's the case the number off added and removed lines will have to be divided by 2
+// Counts its number of lines and report if encoding is utf16 and line endings are cr/lf
+// If it's the case the number of added and removed lines will have to be divided by 2.
 //	Input params:
 //		- depot file path and name
 //	Output params:
@@ -34,11 +34,11 @@ type T_p4DiffRes struct {
   changedLines    int
   depotFileLineCt int
 }
-func (p *Perforce) p4Diff(depotFile string)(res T_p4DiffRes, err error){
-  p.log(fmt.Sprintf("depotFile(%s)", depotFile))
+func (p *Perforce) P4Diff(depotFile string)(res T_p4DiffRes, err error){
+  p.log(fmt.Sprintf("P4Diff(%s)", depotFile))
 
 	// Get workspace file
-	wsFile,err := p.GetP4Where(depotFile string)
+	wsFile,err := p.GetP4Where(depotFile)
 	if err != nil {
 		return res, err
 	}
@@ -51,13 +51,13 @@ func (p *Perforce) p4Diff(depotFile string)(res T_p4DiffRes, err error){
   defer f.Close()
 
   p.log(fmt.Sprintf("Get workspace file line count (%s)",wsFile))
-	totalLineCountWS, res.utf16crlf err := lineCounter(f)
+  totalLineCountWS, res.utf16crlf, err := lineCounter(f)
   if err != nil {
 		return res, err
-	}
+  }
 
-	// Diff workspace file from head revision
-	_, _, res.addedLines, res.removedLines, res.changedLines, err := p.DiffHeadnWorkspace(depotFile)
+  // Diff workspace file from head revision
+  _, _, res.addedLines, res.removedLines, res.changedLines, err := p.DiffHeadnWorkspace(depotFile)
   if err != nil {
 		return res, err
 	}

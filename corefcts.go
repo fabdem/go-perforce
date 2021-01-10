@@ -283,13 +283,13 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 	return m_files, sUSER, sWS, nil
 }
 
-// P4Diff()
-// 	Diff head rev and workspace in simplified form.
+// P4DiffHeadNWorkspace()
+// 	Diff workspace (WS) and head rev (HR) version of a file.
 //  Uses perforce p4 diff with option summary and ignore line endings.
 //	p4 diff returns a number of added, modified and deleted lines.
 // 	Do a: p4 -uxxxxx -wyyyyy diff //workspacefile
 //	A workspace name needs to be defined
-//  If p.diffignorespace is set changes in spaces and eol will be ignored.
+//  If p.diffignorespace is set changes in spaces will be ignored.
 // 	Input:
 //		- File in depot to diff - p4 will automatically determine workspace path
 //  Return:
@@ -299,23 +299,25 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 //  To be noted that utf16 encoded files are correctly processed.
 //
 //
-/*
+/* Command and output:
 p4 -ca_workspace -ua_user diff -ds //path_and_name_of_a_file_in_depot
 ==== path_and_name_of_a_file_in_depot - path_and_name_of_a_file_in_workspace ====
 add 3 chunks 8 lines
 deleted 2 chunks 7 lines
 changed 1 chunks 3 / 3 lines
 */
-type T_p4DiffRes struct {
-	fileHR				string
-	fileWS				string
+type T_DiffResHeadNWorkspace struct {
+	fileHR			string
+	nbLinesHR		int
+	fileWS			string
+	nbLinesWS		int
 	addedLines		int
 	removedLines	int
 	changedLines	int
 }
 
-func (p *Perforce) P4Diff(aFileInDepot string) (res T_p4DiffRes, err error) {
-	p.log("DiffHeadnWorkspace()\n")
+func (p *Perforce) P4DiffHeadNWorkspace(aFileInDepot string) (res T_p4DiffRes, err error) {
+	p.log("P4DiffHeadNWorkspace(%s)\n",aFileInDepot)
 
 	var out []byte
 	option := "-dls" // Summary output and ignore line endings
@@ -395,18 +397,18 @@ func (p *Perforce) P4Diff(aFileInDepot string) (res T_p4DiffRes, err error) {
 		return res, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
 	}
 
-	res.fileHR =				fileHR
-	res.fileWS =				fileWS
-	res.addedLines =		addedLines
-	res.removedLines =	removedLines
-	res.changedLines =	changedLines
+	res.fileHR			= fileHR
+	res.fileWS			= fileWS
+	res.addedLines		= addedLines
+	res.removedLines	= removedLines
+	res.changedLines	= changedLines
 
 	return res, nil
 }
 
 
 
-// CustomDiffHeadnWorkspace()
+// CustomDiffHeadNWorkspace()
 // 	Custom diff head rev and workspace in simplified form.
 //
 //  Simple algo to produce a view of the overall amount of changes (line count)
@@ -432,6 +434,16 @@ func (p *Perforce) P4Diff(aFileInDepot string) (res T_p4DiffRes, err error) {
 //		- Number of line file file in workspace
 //		- Added, deleted and modified number of lines
 //		- Err code, nil if okay
+
+/* type T_DiffResHeadNWorkspace struct {
+	fileHR			string
+	nbLinesHR		int
+	fileWS			string
+	nbLinesWS		int
+	addedLines		int
+	removedLines	int
+	changedLines	int
+} */
 
 func (p *Perforce) CustomDiffHeadnWorkspace(aFileInDepot string) (fileHR string, nbLinesHR int, fileWS string, nbLinesWS int, addedModLines int, removedModLines int, err error) {
 	p.log(fmt.Sprintf("CustomDiffHeadnWorkspace(%s)\n", aFileInDepot))
