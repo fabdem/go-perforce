@@ -5,6 +5,7 @@ package perforce
 import (
 	"bufio"
 	"errors"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,8 @@ import (
 	// "regexp"
 	"strconv"
 	"strings"
+	"regexp"
+
 )
 
 type T_DiffRes struct {
@@ -29,10 +32,11 @@ type T_DiffRes struct {
 
 // DiffHRvsWS()
 // Implementation of a diff between head revision vs workspace.
-// Two algos - 1 based on p4 diff and one custom (faster?)
+// Two algos:
+//   - 1 based on p4 diff and one custom (faster?)
 //   - Get the workspace files
 //   - Counts number of lines and report if encoding is utf16 and line endings are cr/lf
-// If it's the case the number of added and removed lines will have to be divided by 2.
+//     If it's the case the number of added and removed lines will have to be divided by 2.
 //	Input params:
 //		- algo "p4" or "custom"
 //		- depot file path and name
@@ -69,7 +73,7 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 		// Diff workspace file from head revision
 		r, err := p.p4DiffHRvsWS(depotFile, f)
 		if err != nil {
-			return res, err
+			return r, err
 		}
 
 		if res.utf16crlf { // Divide by 2 added and removed # of lines if encoding utf16 and line ending cr/lf
@@ -79,15 +83,18 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 
 		// Calculate total number of lines of the depot files because this is the one
 		// we want to base the percentages on
-		res.nbLinesHR = res.nbLinesWS - res.addedLines + res.removedLines
+		res.nbLinesHR = r.nbLinesWS - r.addedLines + r.removedLines
 	case "custom":
 		r, err := p.customDiffHRvsWS(depotFile, f)
+		if err != nil {
+			return res, err
+		}
 		// ???? update res with returned values
-		res.addedLines = r.addedLines
+		res.addedLines, res.removedLines = r.addedLines, r.removedLines
+		// ?? nbLinesHR 
 	default:
 		return res, errors.New(fmt.Sprintf("DiffHRvsWS() - Invalid algorithm: %s", algo))
 	}
-
 	return res, nil
 }
 
@@ -116,7 +123,7 @@ deleted 2 chunks 7 lines
 changed 1 chunks 3 / 3 lines
 */
 
-func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r T_DiffRes) (err error) {
+func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_DiffRes, err error) {
 	p.log(fmt.Sprintf("p4DiffHRvsWS(%s)\n", aFileInDepot))
 
 	var out []byte
@@ -126,7 +133,7 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r T_Dif
 	}
 
 	if len(p.workspace) <= 0 {
-		return errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
+		return r, errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
 	}
 	if len(p.user) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -ds " + " " + aFileInDepot + "\n")
@@ -138,47 +145,52 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r T_Dif
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
-		return errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+		return r, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
 	// Parse result
+	// greedy match for 1st path since it's a p4 path, lazy match the second one to be platform agnostic  
+	var getPattern = regexp.MustCompile(`(?m)(//.*?\.\S*) - (.*?) ====.*\nadd ([0-9]+) chunks ([0-9]+) lines.*\ndeleted ([0-9]+) chunks ([0-9]+) lines.*\nchanged ([0-9]+) chunks ([0-9]+) / ([0-9]+) lines`)
+	groups := getPattern.FindAllStringSubmatch(string(out), -1)
+
+/*
 	cue1 := "===="
 	cue2 := "==== "
 	cue3 := " ===="
 	cue4 := " - "
 	fields := strings.Split(string(out), cue1)
 	if len(fields) < 1 {
-		return errors.New(fmt.Sprintf("P4 command line - parsing error  out=%s", out))
+		return r, errors.New(fmt.Sprintf("P4 command line - parsing error  out=%s", out))
 	}
 	line := fields[1]                     // 1st line is supposed to contain path of files in depot and workspace.
 	line = strings.TrimPrefix(line, cue2) // Isolate paths
 	line = strings.TrimSuffix(line, cue3)
 	fields = strings.Split(line, cue4)
 	if len(fields) < 2 {
-		return errors.New(fmt.Sprintf("P4 command line - parsing error in %s\n out=%s", line, out))
+		return r, errors.New(fmt.Sprintf("P4 command line - parsing error in %s\n out=%s", line, out))
 	}
 	fileHR := fields[0]
 	fileWS := fields[1]
 
 	fields = strings.Split(string(out), cue3) // Split to get section with line stats
 	if len(fields) < 2 {
-		return errors.New(fmt.Sprintf("1 - P4 command line - parsing error in out=%s\n", out))
+		return r, errors.New(fmt.Sprintf("1 - P4 command line - parsing error in out=%s\n", out))
 	}
 	// fmt.Printf("\n\n\nfields[1]\n%s\n\n",fields[1])
 
 	lines := strings.Split(fields[1], "\n") // Get the section with line stats
 	if len(lines) < 4 {
-		return errors.New(fmt.Sprintf("2 - P4 command line - parsing error in %s\n out=%s\n", lines, out))
+		return r, errors.New(fmt.Sprintf("2 - P4 command line - parsing error in %s\n out=%s\n", lines, out))
 	}
 	// fmt.Printf("\n\nlines[]\n%s\n%s\n%s\n",lines[1],lines[2],lines[3])
 
-	/*
-		add 3 chunks 8 lines
-		deleted 2 chunks 7 lines
-		changed 1 chunks 3 / 3 lines
-	*/
+	//
+	//	add 3 chunks 8 lines
+	//	deleted 2 chunks 7 lines
+	//	changed 1 chunks 3 / 3 lines
+	//
 	if (strings.Index(lines[1], "add") == -1) || (strings.Index(lines[2], "deleted") == -1) || (strings.Index(lines[3], "changed") == -1) {
-		return errors.New(fmt.Sprintf("3 - P4 command line - parsing error in:\n%s\n%s\n%s\n out=%s\n", lines, out))
+		return r, errors.New(fmt.Sprintf("3 - P4 command line - parsing error in:\n%s\n%s\n%s\n out=%s\n", lines, out))
 	}
 	addLine := strings.Fields(lines[1])
 	removeLine := strings.Fields(lines[2])
@@ -186,24 +198,35 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r T_Dif
 
 	//fmt.Printf("addLine:%v\nremoveLine:%v\nchangeLine:%v\n",addLine,removeLine,changeLine)
 	if (len(addLine) < 5) || (len(removeLine) < 5) || (len(changeLine) < 7) {
-		return errors.New(fmt.Sprintf("4 - P4 command line - parsing error out=%s\n", out))
+		return r, errors.New(fmt.Sprintf("4 - P4 command line - parsing error out=%s\n", out))
 	}
-	var err1, err2, err3 /*, err4 */ error
+	var err1, err2, err3 error
 	addedLines, err1 := strconv.Atoi(addLine[3])
 	removedLines, err2 := strconv.Atoi(removeLine[3])
 	// changedLines1, err4 := strconv.Atoi(changeLine[3])
 	changedLines, err3 := strconv.Atoi(changeLine[5])
-	if (err1 != nil) || (err2 != nil) || (err3 != nil) /* || (err4 != nil) */ {
-		return errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
+	if (err1 != nil) || (err2 != nil) || (err3 != nil)  {
+		return r, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
+	}
+*/
+	fileHR := groups[0][0]
+	fileWS := groups[0][1]
+
+	var err1, err2, err3 error
+	addedLines, err1 := strconv.Atoi(groups[0][4])
+	removedLines, err2 := strconv.Atoi(groups[0][6])
+	changedLines, err3 := strconv.Atoi(groups[0][8])
+	if (err1 != nil) || (err2 != nil) || (err3 != nil)  {
+		return r, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
 	}
 
-	res.fileHR = fileHR
-	res.fileWS = fileWS
-	res.addedLines = addedLines
-	res.removedLines = removedLines
-	res.changedLines = changedLines
+	r.fileHR = fileHR
+	r.fileWS = fileWS
+	r.addedLines = addedLines
+	r.removedLines = removedLines
+	r.changedLines = changedLines
 
-	return res, nil
+	return r, nil
 }
 
 // CustomDiffHRvsWS()
@@ -234,19 +257,19 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r T_Dif
 //		- Added, deleted and modified number of lines
 //		- Err code, nil if okay
 
-func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r *T_DiffRes) (err error) {
+func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_DiffRes, err error) {
 	p.log(fmt.Sprintf("customDiffHRvsWS(%s)\n", aFileInDepot))
 
 	// Get head revision file
 	tempHR, fileHR, err := p.GetFile(aFileInDepot, 0)
 	p.log(fmt.Sprintf("	Head Rev=%s\n", fileHR))
 	if err != nil {
-		return errors.New(fmt.Sprintf("Error getting head rev: %s", fileHR))
+		return r, errors.New(fmt.Sprintf("Error getting head rev: %s", fileHR))
 	}
 	//tempName := tempHR.Name()
 	tempf, err := os.Open(tempHR)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Error getting head rev: %s", tempHR))
+		return r, errors.New(fmt.Sprintf("Error getting head rev: %s", tempHR))
 	}
 	defer tempf.Close()
 
@@ -264,7 +287,7 @@ func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r *
 	}
 	p.log(fmt.Sprintf("	Head rev file - nb lines read %d)\n", r.nbLinesHR))
 	if err := scanner.Err(); err != nil {
-		return errors.New(fmt.Sprintf("Error parsing head rev file: %s", tempHR))
+		return r, errors.New(fmt.Sprintf("Error parsing head rev file: %s", tempHR))
 	}
 
 	//	Read workspace and compare
@@ -283,9 +306,9 @@ func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r *
 		} else { // if line not found
 			r.addedLines++ // This line didn't exist in old file
 		}
-		nbLinesWS++
+		r.nbLinesWS++
 	}
-	p.log(fmt.Sprintf("	Workspace file - nb lines read %d)\n", nbLinesWS))
+	p.log(fmt.Sprintf("	Workspace file - nb lines read %d)\n", r.nbLinesWS))
 
 	// Check what's left in the map
 	for _, v := range m_lines {
@@ -299,7 +322,7 @@ func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File, r *
 		p.log(fmt.Sprintf("Error deleting temp file %s %s)\n", tempHR, err))
 	} // Non fatal error
 
-	return nil
+	return r, nil
 }
 
 // Count the number of lines of a text file
@@ -310,8 +333,8 @@ func lineCounter(r io.Reader) (count int, utf16crlf bool, err error) {
 
 	buf := make([]byte, 64*1024)
 	lineSep := []byte{'\n'}
-	utf16LESep = []byte{'\r', 0x00, '\n', 0x00}
-	utf16BESep = []byte{0x00, '\r', 0x00, '\n'}
+	utf16LESep := []byte{'\r', 0x00, '\n', 0x00}
+	utf16BESep := []byte{0x00, '\r', 0x00, '\n'}
 
 	for {
 		c, err := r.Read(buf)
@@ -327,10 +350,11 @@ func lineCounter(r io.Reader) (count int, utf16crlf bool, err error) {
 
 		switch {
 		case err == io.EOF:
-			return count, nil
+			return count, utf16crlf, nil
 
 		case err != nil:
-			return count, err
+			return count, utf16crlf, err
 		}
 	}
+	return count, utf16crlf, nil
 }
