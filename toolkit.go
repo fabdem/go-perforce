@@ -19,82 +19,85 @@ import (
 )
 
 type T_DiffRes struct {
-	utf16crlf    bool
-	fileHR       string
-	nbLinesHR    int
-	encodingHR   string
-	fileWS       string
-	nbLinesWS    int
-	addedLines   int
-	removedLines int
-	changedLines int
+	Utf16crlf    bool
+	FileHR       string
+	NbLinesHR    int
+	EncodingHR   string
+	FileWS       string
+	NbLinesWS    int
+	AddedLines   int
+	RemovedLines int
+	ChangedLines int
 }
 
 // DiffHRvsWS()
+//
 // Implementation of a diff between head revision vs workspace.
-// Two algos:
-//   - 1 based on p4 diff and one custom (faster?)
+//   - Two algos: one based on p4 diff and one custom (faster?)
 //   - Get the workspace files
 //   - Counts number of lines and report if encoding is utf16 and line endings are cr/lf
 //     If it's the case the number of added and removed lines will have to be divided by 2.
 //	Input params:
-//		- algo "p4" or "custom"
-//		- depot file path and name
+//		- Algo "p4" or "custom"
+//		- Depot file path and name
 //	Output params:
-//   	- structure with results
-//		- flag indicating that the file is utf16 encoded and line endings are cr/lf
-//		- err
+//   	- Structure with results
+//		- Flag indicating that the file is utf16 encoded and line endings are cr/lf
+//		- Error
 //
 func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err error) {
 	p.log(fmt.Sprintf("P4Diff(%s)", depotFile))
 
-	res.fileHR = depotFile
+	res.FileHR = depotFile
 
 	// Get workspace file
-	res.fileWS, err = p.GetP4Where(depotFile)
+	res.FileWS, err = p.GetP4Where(depotFile)
 	if err != nil {
 		return res, err
 	}
 
-	// Get its number of lines
-	f, err := os.Open(res.fileWS)
+	// Get its line count
+	fws, err := os.Open(res.FileWS)
 	if err != nil {
 		return res, err
 	}
-	defer f.Close()
+	defer fws.Close()
 
-	p.log(fmt.Sprintf("Get workspace file line count (%s)", res.fileWS))
-	res.nbLinesWS, res.utf16crlf, err = lineCounter(f) // !!!!!!!maybe move it after diff is done or in switch
+	p.log(fmt.Sprintf("Get workspace file line count (%s)", res.FileWS))
+	res.NbLinesWS, res.Utf16crlf, err = lineCounter(fws) // !!!!!!!maybe move it after diff is done or in switch
 	if err != nil {
 		return res, err
 	}
 	switch algo {
 	case "p4":
 		// Diff workspace file from head revision
-		r, err := p.p4DiffHRvsWS(depotFile, f)
+		r, err := p.p4DiffHRvsWS(depotFile, fws)
 		if err != nil {
 			return r, err
 		}
 
-		if res.utf16crlf { // Divide by 2 added and removed # of lines if encoding utf16 and line ending cr/lf
-			res.addedLines = (r.addedLines << 1)
-			res.removedLines = (r.removedLines << 1)
+		if res.Utf16crlf { // Divide by 2 added and removed # of lines if encoding utf16 and line ending cr/lf
+			res.AddedLines = (r.AddedLines << 1)
+			res.RemovedLines = (r.RemovedLines << 1)
 		}
 
 		// Calculate total number of lines of the depot files because this is the one
-		// we want to base the percentages on
-		res.nbLinesHR = r.nbLinesWS - r.addedLines + r.removedLines
+		// we want to base the percentages upon
+		res.NbLinesHR = r.NbLinesWS - r.AddedLines + r.RemovedLines
+
 	case "custom":
-		r, err := p.customDiffHRvsWS(depotFile, f)
+		r, err := p.customDiffHRvsWS(depotFile, fws)
 		if err != nil {
 			return res, err
 		}
 		// ???? update res with returned values
-		res.addedLines, res.removedLines = r.addedLines, r.removedLines
-		// ?? nbLinesHR 
+		res.AddedLines, res.RemovedLines = r.AddedLines, r.RemovedLines
+		// ?? nbLinesHR
+
 	default:
-		return res, errors.New(fmt.Sprintf("DiffHRvsWS() - Invalid algorithm: %s", algo))
+		return res, errors.New(fmt.Sprintf("DiffHRvsWS() - Invalid algorithm name: %s", algo))
 	}
+
 	return res, nil
 }
 
@@ -112,7 +115,7 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 //		- added, deleted and modified number of lines
 //		- err code, nil if okay
 //
-//  To be noted that utf16 encoded files are correctly processed.
+//  To be noted that utf16 encoded files are (since recently?) correctly processed.
 //
 //
 /* p4 command and output:
@@ -149,7 +152,7 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_Di
 	}
 
 	// Parse result
-	// greedy match for 1st path since it's a p4 path, lazy match the second one to be platform agnostic  
+	// greedy match for 1st path since it's a p4 path, lazy match the second one to be platform agnostic
 	var getPattern = regexp.MustCompile(`(?m)(//.*?\.\S*) - (.*?) ====.*\nadd ([0-9]+) chunks ([0-9]+) lines.*\ndeleted ([0-9]+) chunks ([0-9]+) lines.*\nchanged ([0-9]+) chunks ([0-9]+) / ([0-9]+) lines`)
 	groups := getPattern.FindAllStringSubmatch(string(out), -1)
 
@@ -220,11 +223,11 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_Di
 		return r, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
 	}
 
-	r.fileHR = fileHR
-	r.fileWS = fileWS
-	r.addedLines = addedLines
-	r.removedLines = removedLines
-	r.changedLines = changedLines
+	r.FileHR = fileHR
+	r.FileWS = fileWS
+	r.AddedLines = addedLines
+	r.RemovedLines = removedLines
+	r.ChangedLines = changedLines
 
 	return r, nil
 }
@@ -243,7 +246,7 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_Di
 //
 //	A workspace name needs to be defined
 //
-//  If p.diffignorespace is set changes in spaces, tabs and line endings will be ignored.
+//  If p.diffignorespace is set, changes in spaces, tabs and line endings will be ignored.
 //	However, works only with utf8 encoding.
 //
 // 	Input:
@@ -283,11 +286,11 @@ func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r 
 			line = strings.Trim(line, " \t\r\n")
 		}
 		m_lines[line]++
-		r.nbLinesHR++
+		r.NbLinesHR++
 	}
-	p.log(fmt.Sprintf("	Head rev file - nb lines read %d)\n", r.nbLinesHR))
+	p.log(fmt.Sprintf("	Head rev file - nb lines read %d)\n", r.NbLinesHR))
 	if err := scanner.Err(); err != nil {
-		return r, errors.New(fmt.Sprintf("Error parsing head rev file: %s", tempHR))
+		return r, errors.New(fmt.Sprintf("Error parsing head rev file: %s", aFileInWS))
 	}
 
 	//	Read workspace and compare
@@ -299,20 +302,20 @@ func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r 
 		}
 		if nb, ok := m_lines[line]; ok { // if line found
 			if nb <= 0 {
-				r.addedLines++ // There are more occurrences of this line in new file
+				r.AddedLines++ // There are more occurrences of this line in new file
 			} else {
 				m_lines[line]--
 			}
 		} else { // if line not found
-			r.addedLines++ // This line didn't exist in old file
+			r.AddedLines++ // This line didn't exist in old file
 		}
-		r.nbLinesWS++
+		r.NbLinesWS++
 	}
-	p.log(fmt.Sprintf("	Workspace file - nb lines read %d)\n", r.nbLinesWS))
+	p.log(fmt.Sprintf("	Workspace file - nb lines read %d)\n", r.NbLinesWS))
 
 	// Check what's left in the map
 	for _, v := range m_lines {
-		r.removedLines += v // Accrue here number of modified or deleted lines from headrev
+		r.RemovedLines += v // Accrue here number of modified or deleted lines from headrev
 	}
 
 	// Delete temp head rev file
