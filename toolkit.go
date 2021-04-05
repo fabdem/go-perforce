@@ -56,22 +56,10 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 		return res, err
 	}
 
-	// Get its line count
-	fws, err := os.Open(res.FileWS)
-	if err != nil {
-		return res, err
-	}
-	defer fws.Close()
-
-	p.log(fmt.Sprintf("Get workspace file line count (%s)", res.FileWS))
-	res.NbLinesWS, res.Utf16crlf, err = lineCounter(fws) // !!!!!!!maybe move it after diff is done or in switch
-	if err != nil {
-		return res, err
-	}
 	switch algo {
 	case "p4":
 		// Diff workspace file from head revision
-		r, err := p.p4DiffHRvsWS(depotFile, fws)
+		r, err := p.p4DiffHRvsWS(depotFile, res.FileWS)
 		if err != nil {
 			return r, err
 		}
@@ -86,13 +74,13 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 		res.NbLinesHR = r.NbLinesWS - r.AddedLines + r.RemovedLines
 
 	case "custom":
-		r, err := p.customDiffHRvsWS(depotFile, fws)
+		r, err := p.customDiffHRvsWS(depotFile, res.FileWS)
 		if err != nil {
 			return res, err
 		}
-		// ???? update res with returned values
+		// Update res with returned values
 		res.AddedLines, res.RemovedLines = r.AddedLines, r.RemovedLines
-		// ?? nbLinesHR
+		res.NbLinesHR, res.NbLinesWS = r.NbLinesHR, r.NbLinesWS
 
 	default:
 		return res, errors.New(fmt.Sprintf("DiffHRvsWS() - Invalid algorithm name: %s", algo))
@@ -126,8 +114,21 @@ deleted 2 chunks 7 lines
 changed 1 chunks 3 / 3 lines
 */
 
-func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_DiffRes, err error) {
-	p.log(fmt.Sprintf("p4DiffHRvsWS(%s)\n", aFileInDepot))
+func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRes, err error) {
+	p.log(fmt.Sprintf("p4DiffHRvsWS(%s, %s)\n", fileInDepot, fileInWS))
+
+	// Get its line count
+	fws, err := os.Open(fileInWS)
+	if err != nil {
+		return r, err
+	}
+	defer fws.Close()
+
+	p.log(fmt.Sprintf("Get workspace file line count (%s)", fileInWS))
+	r.NbLinesWS, r.Utf16crlf, err = lineCounter(fws)
+	if err != nil {
+		return r, err
+	}
 
 	var out []byte
 	option := "-dls" // Summary output and ignore line endings
@@ -139,12 +140,12 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_Di
 		return r, errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
 	}
 	if len(p.user) > 0 {
-		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -ds " + " " + aFileInDepot + "\n")
-		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "diff", option, aFileInDepot).CombinedOutput()
+		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -ds " + " " + fileInDepot + "\n")
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "diff", option, fileInDepot).CombinedOutput()
 		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
 	} else {
-		// fmt.Printf(p4Cmd + " -c " + workspace + " diff -ds " + " " + aFileInDepot + "\n")
-		out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "diff", "option", aFileInDepot).CombinedOutput()
+		// fmt.Printf(p4Cmd + " -c " + workspace + " diff -ds " + " " + fileInDepot + "\n")
+		out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "diff", "option", fileInDepot).CombinedOutput()
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
@@ -237,6 +238,10 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_Di
 //
 //  Simple algo to produce a view of the overall amount of changes (line count)
 //	between a file in the workspace and its latest version in depot.
+//  Limitations:
+//  => Works when line order is not important like in a json or vdf loc file.
+//  => If p.diffignorespace is set, changes in spaces, tabs and line endings will be ignored.
+//	   However, works only with utf8 encoding.
 //
 // 	There is no specific processing depending on encoding but works with utf8 and utf16.
 //
@@ -246,8 +251,6 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_Di
 //
 //	A workspace name needs to be defined
 //
-//  If p.diffignorespace is set, changes in spaces, tabs and line endings will be ignored.
-//	However, works only with utf8 encoding.
 //
 // 	Input:
 //		- Name of file in depot to diff - p4 will automatically determine workspace path
@@ -260,11 +263,17 @@ func (p *Perforce) p4DiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_Di
 //		- Added, deleted and modified number of lines
 //		- Err code, nil if okay
 
-func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r T_DiffRes, err error) {
-	p.log(fmt.Sprintf("customDiffHRvsWS(%s)\n", aFileInDepot))
+func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRes, err error) {
+	p.log(fmt.Sprintf("customDiffHRvsWS(%s, %s)\n", fileInDepot, fileInWS))
+
+	fWS, err := os.Open(fileInWS)
+	if err != nil {
+		return r, err
+	}
+	defer fWS.Close()
 
 	// Get head revision file
-	tempHR, fileHR, err := p.GetFile(aFileInDepot, 0)
+	tempHR, fileHR, err := p.GetFile(fileInDepot, 0)
 	p.log(fmt.Sprintf("	Head Rev=%s\n", fileHR))
 	if err != nil {
 		return r, errors.New(fmt.Sprintf("Error getting head rev: %s", fileHR))
@@ -285,16 +294,18 @@ func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r 
 		if p.diffignorespace {
 			line = strings.Trim(line, " \t\r\n")
 		}
-		m_lines[line]++
+		if len(line) > 0 {
+			m_lines[line]++
+		}
 		r.NbLinesHR++
 	}
 	p.log(fmt.Sprintf("	Head rev file - nb lines read %d)\n", r.NbLinesHR))
 	if err := scanner.Err(); err != nil {
-		return r, errors.New(fmt.Sprintf("Error parsing head rev file: %s", aFileInWS))
+		return r, errors.New(fmt.Sprintf("Error parsing head rev file: %s", fileInDepot))
 	}
 
 	//	Read workspace and compare
-	scanner = bufio.NewScanner(aFileInWS)
+	scanner = bufio.NewScanner(fWS)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if p.diffignorespace {
@@ -312,6 +323,9 @@ func (p *Perforce) customDiffHRvsWS(aFileInDepot string, aFileInWS *os.File) (r 
 		r.NbLinesWS++
 	}
 	p.log(fmt.Sprintf("	Workspace file - nb lines read %d)\n", r.NbLinesWS))
+	if err := scanner.Err(); err != nil {
+		return r, errors.New(fmt.Sprintf("Error parsing the workspace file: %s", fileInWS))
+	}
 
 	// Check what's left in the map
 	for _, v := range m_lines {
