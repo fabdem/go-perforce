@@ -157,6 +157,8 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 	var getPattern = regexp.MustCompile(`(?m)(//.*?\.\S*) - (.*?) ====.*\nadd ([0-9]+) chunks ([0-9]+) lines.*\ndeleted ([0-9]+) chunks ([0-9]+) lines.*\nchanged ([0-9]+) chunks ([0-9]+) / ([0-9]+) lines`)
 	groups := getPattern.FindAllStringSubmatch(string(out), -1)
 
+	p.log(fmt.Sprintf(" groups %s", groups))
+
 /*
 	cue1 := "===="
 	cue2 := "==== "
