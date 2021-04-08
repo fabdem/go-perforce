@@ -64,9 +64,15 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 			return r, err
 		}
 
+		res.Utf16crlf = r.Utf16crlf
+		res.AddedLines   = r.AddedLines
+		res.ChangedLines = r.ChangedLines
+		res.RemovedLines = r.RemovedLines
+
 		if res.Utf16crlf { // Divide by 2 added and removed # of lines if encoding utf16 and line ending cr/lf
-			res.AddedLines = (r.AddedLines << 1)
-			res.RemovedLines = (r.RemovedLines << 1)
+			res.AddedLines   <<= 1
+			res.ChangedLines <<= 1
+			res.RemovedLines <<= 1
 		}
 
 		// Calculate total number of lines of the depot files because this is the one
@@ -152,78 +158,25 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 		return r, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
+	p.log(fmt.Sprintf(" Diff response= %s", out))
+
 	// Parse result
 	// greedy match for 1st path since it's a p4 path, lazy match the second one to be platform agnostic
 	var getPattern = regexp.MustCompile(`(?m)(//.*?\.\S*) - (.*?) ====.*\nadd ([0-9]+) chunks ([0-9]+) lines.*\ndeleted ([0-9]+) chunks ([0-9]+) lines.*\nchanged ([0-9]+) chunks ([0-9]+) / ([0-9]+) lines`)
 	groups := getPattern.FindAllStringSubmatch(string(out), -1)
+	if groups == nil || len(groups[0]) < 10 {
+		return r, errors.New(fmt.Sprintf("P4 parsing error or unexpected response. Expected nb matches is 10 but current matches is %d", len(groups[0])))
+	}
 
-	p.log(fmt.Sprintf(" groups %s", groups))
-
-/*
-	cue1 := "===="
-	cue2 := "==== "
-	cue3 := " ===="
-	cue4 := " - "
-	fields := strings.Split(string(out), cue1)
-	if len(fields) < 1 {
-		return r, errors.New(fmt.Sprintf("P4 command line - parsing error  out=%s", out))
-	}
-	line := fields[1]                     // 1st line is supposed to contain path of files in depot and workspace.
-	line = strings.TrimPrefix(line, cue2) // Isolate paths
-	line = strings.TrimSuffix(line, cue3)
-	fields = strings.Split(line, cue4)
-	if len(fields) < 2 {
-		return r, errors.New(fmt.Sprintf("P4 command line - parsing error in %s\n out=%s", line, out))
-	}
-	fileHR := fields[0]
-	fileWS := fields[1]
-
-	fields = strings.Split(string(out), cue3) // Split to get section with line stats
-	if len(fields) < 2 {
-		return r, errors.New(fmt.Sprintf("1 - P4 command line - parsing error in out=%s\n", out))
-	}
-	// fmt.Printf("\n\n\nfields[1]\n%s\n\n",fields[1])
-
-	lines := strings.Split(fields[1], "\n") // Get the section with line stats
-	if len(lines) < 4 {
-		return r, errors.New(fmt.Sprintf("2 - P4 command line - parsing error in %s\n out=%s\n", lines, out))
-	}
-	// fmt.Printf("\n\nlines[]\n%s\n%s\n%s\n",lines[1],lines[2],lines[3])
-
-	//
-	//	add 3 chunks 8 lines
-	//	deleted 2 chunks 7 lines
-	//	changed 1 chunks 3 / 3 lines
-	//
-	if (strings.Index(lines[1], "add") == -1) || (strings.Index(lines[2], "deleted") == -1) || (strings.Index(lines[3], "changed") == -1) {
-		return r, errors.New(fmt.Sprintf("3 - P4 command line - parsing error in:\n%s\n%s\n%s\n out=%s\n", lines, out))
-	}
-	addLine := strings.Fields(lines[1])
-	removeLine := strings.Fields(lines[2])
-	changeLine := strings.Fields(lines[3])
-
-	//fmt.Printf("addLine:%v\nremoveLine:%v\nchangeLine:%v\n",addLine,removeLine,changeLine)
-	if (len(addLine) < 5) || (len(removeLine) < 5) || (len(changeLine) < 7) {
-		return r, errors.New(fmt.Sprintf("4 - P4 command line - parsing error out=%s\n", out))
-	}
-	var err1, err2, err3 error
-	addedLines, err1 := strconv.Atoi(addLine[3])
-	removedLines, err2 := strconv.Atoi(removeLine[3])
-	// changedLines1, err4 := strconv.Atoi(changeLine[3])
-	changedLines, err3 := strconv.Atoi(changeLine[5])
-	if (err1 != nil) || (err2 != nil) || (err3 != nil)  {
-		return r, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
-	}
-*/
-	fileHR := groups[0][0]
-	fileWS := groups[0][1]
+	fileHR := groups[0][1]
+	fileWS := groups[0][2]
 
 	var err1, err2, err3 error
 	addedLines, err1 := strconv.Atoi(groups[0][4])
 	removedLines, err2 := strconv.Atoi(groups[0][6])
 	changedLines, err3 := strconv.Atoi(groups[0][8])
 	if (err1 != nil) || (err2 != nil) || (err3 != nil)  {
-		return r, errors.New(fmt.Sprintf("5 - P4 command line - parsing error out=%s\n", out))
+		return r, errors.New(fmt.Sprintf("5 - P4 command line - unexpected response=%s\n", out))
 	}
 
 	r.FileHR = fileHR
