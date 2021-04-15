@@ -51,7 +51,7 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 	res.FileHR = depotFile
 
 	// Get workspace file
-	res.FileWS, err = p.GetP4Where(depotFile)
+	workspaceFile, err := p.GetP4Where(depotFile)
 	if err != nil {
 		return res, err
 	}
@@ -59,15 +59,10 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 	switch algo {
 	case "p4":
 		// Diff workspace file from head revision
-		r, err := p.p4DiffHRvsWS(depotFile, res.FileWS)
+		res, err := p.p4DiffHRvsWS(depotFile, workspaceFile)
 		if err != nil {
-			return r, err
+			return res, err
 		}
-
-		res.Utf16crlf = r.Utf16crlf
-		res.AddedLines   = r.AddedLines
-		res.ChangedLines = r.ChangedLines
-		res.RemovedLines = r.RemovedLines
 
 		if res.Utf16crlf { // Divide by 2 added and removed # of lines if encoding utf16 and line ending cr/lf
 			res.AddedLines   <<= 1
@@ -77,20 +72,20 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 
 		// Calculate total number of lines of the depot files because this is the one
 		// we want to base the percentages upon
-		res.NbLinesHR = r.NbLinesWS - r.AddedLines + r.RemovedLines
+		res.NbLinesHR = res.NbLinesWS - res.AddedLines + res.RemovedLines
 
 	case "custom":
-		r, err := p.customDiffHRvsWS(depotFile, res.FileWS)
+		res, err = p.customDiffHRvsWS(depotFile, res.FileWS)
 		if err != nil {
 			return res, err
 		}
-		// Update res with returned values
-		res.AddedLines, res.RemovedLines = r.AddedLines, r.RemovedLines
-		res.NbLinesHR, res.NbLinesWS = r.NbLinesHR, r.NbLinesWS
 
 	default:
 		return res, errors.New(fmt.Sprintf("DiffHRvsWS() - Invalid algorithm name: %s", algo))
 	}
+
+	res.FileHR = depotFile
+	res.FileWS = workspaceFile
 
 	return res, nil
 }
