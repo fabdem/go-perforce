@@ -75,7 +75,7 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 		res.NbLinesHR = res.NbLinesWS - res.AddedLines + res.RemovedLines
 
 	case "custom":
-		res, err = p.customDiffHRvsWS(depotFile, res.FileWS)
+		res, err = p.customDiffHRvsWS(depotFile, workspaceFile)
 		if err != nil {
 			return res, err
 		}
@@ -261,14 +261,16 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 		if p.diffignorespace {
 			line = strings.Trim(line, " \t\r\n")
 		}
-		if nb, ok := m_lines[line]; ok { // if line found
-			if nb <= 0 {
-				r.AddedLines++ // There are more occurrences of this line in new file
-			} else {
-				m_lines[line]--
+		if len(line) > 0 {
+			if nb, ok := m_lines[line]; ok { // if line found
+				if nb <= 0 {
+					r.AddedLines++ // There are more occurrences of this line in new file
+				} else {
+					m_lines[line]--
+				}
+			} else { // if line not found
+				r.AddedLines++ // This line didn't exist in old file
 			}
-		} else { // if line not found
-			r.AddedLines++ // This line didn't exist in old file
 		}
 		r.NbLinesWS++
 	}
