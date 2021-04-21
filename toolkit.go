@@ -59,7 +59,7 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 	switch algo {
 	case "p4":
 		// Diff workspace file from head revision
-		res, err := p.p4DiffHRvsWS(depotFile, workspaceFile)
+		res, err = p.p4DiffHRvsWS(depotFile, workspaceFile)
 		if err != nil {
 			return res, err
 		}
@@ -170,6 +170,12 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 	addedLines, err1 := strconv.Atoi(groups[0][4])
 	removedLines, err2 := strconv.Atoi(groups[0][6])
 	changedLines, err3 := strconv.Atoi(groups[0][8])
+	// fmt.Printf("in toolkit fileHR=%s\n", fileHR)
+	// fmt.Printf("in toolkit fileWS=%s\n", fileWS)
+	// fmt.Printf("in toolkit addedLines=%d\n", addedLines)
+	// fmt.Printf("in toolkit removedLines=%d\n", removedLines)
+	// fmt.Printf("in toolkit changedLines=%d\n", changedLines)
+
 	if (err1 != nil) || (err2 != nil) || (err3 != nil)  {
 		return r, errors.New(fmt.Sprintf("5 - P4 command line - unexpected response=%s\n", out))
 	}
