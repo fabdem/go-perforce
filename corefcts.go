@@ -282,3 +282,73 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 
 	return m_files, sUSER, sWS, nil
 }
+
+
+type T_WSDetails struct {
+	Name			string
+	Update			string
+	Access			string
+	Owner   		string
+	Description		string
+	Root			string
+	Options			[]string
+	SubmitOptions	[]string
+	LineEnd			string
+	View			map[string]string
+}
+
+// GetWorkspaceDetails()
+//	Get workspace details from: p4 -w wwww -u xxxxx p4 client -o
+// 	Input:
+//		- workspace - optional if not present uses current workspace
+//  Return:
+//		- structure with details
+//		- err code, nil if okay
+
+func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, err error) {
+	p.log(fmt.Sprintf("GetWorkspaceDetails(%s)\n", workspace))
+
+	var out []byte
+
+	if len(workspace) <= 0 {
+		workspace = p.workspace
+	}
+
+	if len(p.user) > 0 {
+		// fmt.Printf(p4Cmd + " -u " + user + "-c" + workspace + " client -o\n")
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", workspace, "client -o").CombinedOutput()
+		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
+	} else {
+		// fmt.Printf(p4Cmd + "-c" + workspace + " client -o\n")
+		out, err = exec.Command(p.p4Cmd, "-c", workspace, "client -o").CombinedOutput()
+		// out, err := exec.Command(p.p4Cmd, "info").Output()
+	}
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+	}
+
+	pattern, err := regexp.Compile(`(?m).*^Client:(.*)\n\n^Update:(.*)\n\n^Access:(.*)\n\n^Owner:(.*)\n\n^Description:\n(.*)\n\n^Root:(.*)\n\n^Options:(.*)\n\n^SubmitOptions:(.*)\n\n^LineEnd:(.*)\n\n^View:\n\t(//.*) "?(//.*)"?`)
+	
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
+	}
+
+	matches := pattern.FindSubmatch(out)
+	if len(matches) < 10 { // Not enough fields identified and parsed
+		return details, errors.New(fmt.Sprintf("Error parsing: %s", out))
+	}
+
+	details.Name  			= string(matches[0])
+	details.Update 			= string(matches[1])
+	details.Access			= string(matches[2])
+	details.Owner   		= string(matches[3])
+	details.Description		= string(matches[4])
+	details.Root			= string(matches[5])
+	details.Options			= strings.Split(string(matches[6]), " ")
+	details.SubmitOptions	= strings.Split(string(matches[7]), " ")
+	details.LineEnd			= string(matches[8])
+
+	fmt.Printf("res=%v\n", details)
+	return details, nil
+}
+
