@@ -316,19 +316,19 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 
 	if len(p.user) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + "-c" + workspace + " client -o\n")
-		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", workspace, "client -o").CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", workspace, "client", "-o").CombinedOutput()
 		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
 	} else {
 		// fmt.Printf(p4Cmd + "-c" + workspace + " client -o\n")
-		out, err = exec.Command(p.p4Cmd, "-c", workspace, "client -o").CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "-c", workspace, "client", "-o").CombinedOutput()
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
+	// Get the individual parameters
 	pattern, err := regexp.Compile(`(?m).*^Client:(.*)\n\n^Update:(.*)\n\n^Access:(.*)\n\n^Owner:(.*)\n\n^Description:\n(.*)\n\n^Root:(.*)\n\n^Options:(.*)\n\n^SubmitOptions:(.*)\n\n^LineEnd:(.*)\n\n^View:\n\t(//.*) "?(//.*)"?`)
-	
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
@@ -338,17 +338,45 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 		return details, errors.New(fmt.Sprintf("Error parsing: %s", out))
 	}
 
-	details.Name  			= string(matches[0])
-	details.Update 			= string(matches[1])
-	details.Access			= string(matches[2])
-	details.Owner   		= string(matches[3])
-	details.Description		= string(matches[4])
-	details.Root			= string(matches[5])
-	details.Options			= strings.Split(string(matches[6]), " ")
-	details.SubmitOptions	= strings.Split(string(matches[7]), " ")
-	details.LineEnd			= string(matches[8])
+	details.Name  			= strings.TrimLeft(string(matches[1])," \t")
+	details.Update 			= strings.TrimLeft(string(matches[2])," \t")
+	details.Access			= strings.TrimLeft(string(matches[3])," \t")
+	details.Owner   		= strings.TrimLeft(string(matches[4])," \t")
+	details.Description	= strings.TrimLeft(string(matches[5])," \t")
+	details.Root				= strings.TrimLeft(string(matches[6])," \t")
+	details.Options			= strings.Split(strings.TrimLeft(string(matches[7])," \t"), " ")
+	details.SubmitOptions	= strings.Split(strings.TrimLeft(string(matches[8])," \t"), " ")
 
-	fmt.Printf("res=%v\n", details)
+	// Get the list of files depot/workspace
+	// First find the index of the begining of the list dans le Buffer
+	pattern, err = regexp.Compile(`(?m).*^(View:\n)\t//.* "?//.*"?`)
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
+	}
+	idxs := pattern.FindSubmatchIndex(out)
+	if len(idxs) < 3 {
+		return details, errors.New(fmt.Sprintf("Parsing workspace error - can't find list of depot/ws files"))
+	}
+	fmt.Printf("match=%s\n", out[idxs[2]:idxs[3]])
+
+	out = out[idxs[3]:]  // Keep list of of depot/ws files only - trash everything before
+
+	// Get all the pairs depot/ws files
+	pattern, err = regexp.Compile(`(?m).*^\t(//.*) "?(//[^"\n]*)`)
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
+	}
+	list := pattern.FindAllSubmatch(out,-1)
+	fmt.Printf("len(list)=%d   len(list[0])=%d    len(list[1])=%d\n", len(list),len(list[0]), len(list[1]))
+	fmt.Printf("list[0]=%s\n", list[0])
+	fmt.Printf("list[0][0]=%s\n", list[0][0])
+	fmt.Printf("list[0][1]=%s\n", list[0][1])
+	fmt.Printf("list[0][2]=%s\n", list[0][2])
+	fmt.Printf("list[1][0]=%s\n", list[1][0])
+	fmt.Printf("list[1][1]=%s\n", list[1][1])
+	fmt.Printf("list[1][2]=%s\n", list[1][2])
+
+
+	//fmt.Printf("details=%v\n", details)
 	return details, nil
 }
-
