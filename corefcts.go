@@ -284,6 +284,71 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 }
 
 
+type T_FileDetails struct {
+	Path			string
+	LastVersion		int
+	CL				int
+	EditDate   		string
+	Owner			string
+	Workspace		string
+	Type			string
+	Comment			string  // Short version truncated to 31 characters
+}
+
+// GetFileInDepotDetails()
+//	Get the details from a file in the depot from: p4 -c wwww -u xxxxx p4 filelog -m 1
+//  User and workspace don't seem to be necessary but leaving them anyway
+//	We get a truncated version of the comments (no -l or -L). They are ' delimited so safer to parse that way.
+// 	Input:
+//		- path to file in depot
+//  Return:
+//		- structure with details
+//		- err code, nil if okay
+
+func (p *Perforce) GetFileInDepotDetails(FileInDepot string) (details T_FileDetails, err error) {
+	p.log(fmt.Sprintf("GetFileInDepotDetails(%s)\n", FileInDepot))
+
+	var out []byte
+
+	if len(p.user) > 0 {
+		// fmt.Printf(p4Cmd + " -u " + user + "-c" + p.workspace + " filelog -m 1 ",FileInDepot,"\n")
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "filelog", "-m 1", FileInDepot).CombinedOutput()
+		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
+	} else {
+		// fmt.Printf(p4Cmd + "-c" + workspace + " filelog -m 1 ",FileInDepot,"\n")
+		out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "filelog", "-m 1", FileInDepot).CombinedOutput()
+		// out, err := exec.Command(p.p4Cmd, "info").Output()
+	}
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+	}
+
+	// Get the individual parameters
+	pattern, err := regexp.Compile(`(?m)^(//.*)$[\n\r]*^... #([0-9]*) change ([0-9]*) edit on ([0-9/]*) by ([^@]*)@([^ ]*) \((.*)\) '(.*)'`)
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
+	}
+
+	matches := pattern.FindSubmatch(out)
+	if len(matches) < 9 { // Not enough fields identified and parsed
+		return details, errors.New(fmt.Sprintf("Error parsing - nb field read: %d received from p4: %s", len(matches), out))
+	}
+
+	details.Path  				= strings.Trim(string(matches[1]), " \r\n\t")
+	if details.Path != FileInDepot {	return details, errors.New(fmt.Sprintf("Error parsing - wrong file details returned by p4: %s", details.Path))	}
+	details.LastVersion, err	= strconv.Atoi(string(matches[2]))
+	if err != nil {	return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))	}
+	details.CL, err				= strconv.Atoi(string(matches[3]))
+	if err != nil {	return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))	}
+	details.EditDate  			= strings.Trim(string(matches[4]), " \r\n\t")
+	details.Owner				= strings.Trim(string(matches[5]), " \r\n\t")
+	details.Workspace			= strings.Trim(string(matches[6]), " \r\n\t")
+	details.Type				= strings.Trim(string(matches[7]), " \r\n\t")
+	details.Comment				= strings.Trim(string(matches[8]), " \r\n\t") // We get a truncated to 31 characters version
+
+	return details, nil
+}
+
 type T_WSDetails struct {
 	Name			string
 	Update			string
@@ -297,8 +362,9 @@ type T_WSDetails struct {
 	View			map[string]string
 }
 
+
 // GetWorkspaceDetails()
-//	Get workspace details from: p4 -w wwww -u xxxxx p4 client -o
+//	Get workspace details from: p4 -c wwww -u xxxxx p4 client -o
 // 	Input:
 //		- workspace - optional if not present uses current workspace
 //  Return:
@@ -328,28 +394,28 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 	}
 
 	// Get the individual parameters
-	pattern, err := regexp.Compile(`(?m).*^Client:(.*)\n\n^Update:(.*)\n\n^Access:(.*)\n\n^Owner:(.*)\n\n^Description:\n(.*)\n\n^Root:(.*)\n\n^Options:(.*)\n\n^SubmitOptions:(.*)\n\n^LineEnd:(.*)\n\n^View:\n\t(//.*) "?(//.*)"?`)
+	pattern, err := regexp.Compile(`(?m).*^Client:(.*)[\n\r]*^Update:(.*)[\n\r]*^Access:(.*)[\n\r]*^Owner:(.*)[\n\r]*^Description:[\n\r]{1,2}(.*)[\n\r]*^Root:(.*)[\n\r]*^Options:(.*)[\n\r]*^SubmitOptions:(.*)[\n\r]*^LineEnd:(.*)[\n\r]*^View:[\n\r]*\t(//.*) "?(//.*)"?`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
 
 	matches := pattern.FindSubmatch(out)
 	if len(matches) < 10 { // Not enough fields identified and parsed
-		return details, errors.New(fmt.Sprintf("Error parsing: %s", out))
+		return details, errors.New(fmt.Sprintf("Error parsing - nb field read: %d received from p4: %s", len(matches), out))
 	}
 
-	details.Name  			= strings.TrimLeft(string(matches[1])," \t")
-	details.Update 			= strings.TrimLeft(string(matches[2])," \t")
-	details.Access			= strings.TrimLeft(string(matches[3])," \t")
-	details.Owner   		= strings.TrimLeft(string(matches[4])," \t")
-	details.Description	= strings.TrimLeft(string(matches[5])," \t")
-	details.Root				= strings.TrimLeft(string(matches[6])," \t")
-	details.Options			= strings.Split(strings.TrimLeft(string(matches[7])," \t"), " ")
-	details.SubmitOptions	= strings.Split(strings.TrimLeft(string(matches[8])," \t"), " ")
+	details.Name  			= strings.Trim(string(matches[1])," \t\r\n")
+	details.Update 			= strings.Trim(string(matches[2])," \t\r\n")
+	details.Access			= strings.Trim(string(matches[3])," \t\r\n")
+	details.Owner   		= strings.Trim(string(matches[4])," \t\r\n")
+	details.Description		= strings.Trim(string(matches[5])," \t\r\n")
+	details.Root			= strings.Trim(string(matches[6])," \t\r\n")
+	details.Options			= strings.Split(strings.Trim(string(matches[7])," \t\r\n"), " ")
+	details.SubmitOptions	= strings.Split(strings.Trim(string(matches[8])," \t\r\n"), " ")
 
 	// Get the list of files depot/workspace
 	// First find the index of the begining of the list dans le Buffer
-	pattern, err = regexp.Compile(`(?m).*^(View:\n)\t//.* "?//.*"?`)
+	pattern, err = regexp.Compile(`(?m).*^(View:[\n\r]*)\t//.* "?//.*"?`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
@@ -367,16 +433,18 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
 	list := pattern.FindAllSubmatch(out,-1)
-	fmt.Printf("len(list)=%d   len(list[0])=%d    len(list[1])=%d\n", len(list),len(list[0]), len(list[1]))
-	fmt.Printf("list[0]=%s\n", list[0])
-	fmt.Printf("list[0][0]=%s\n", list[0][0])
-	fmt.Printf("list[0][1]=%s\n", list[0][1])
-	fmt.Printf("list[0][2]=%s\n", list[0][2])
-	fmt.Printf("list[1][0]=%s\n", list[1][0])
-	fmt.Printf("list[1][1]=%s\n", list[1][1])
-	fmt.Printf("list[1][2]=%s\n", list[1][2])
+	
+	// Check result validity
+	if len(list) > 0 {
+		if len(list[0]) < 3 {
+			return details, errors.New(fmt.Sprintf("Parsing workspace error - reading pair depot/workspace file incorrect: %s", out))
+		}
+		// Get results in a map
+		details.View = make(map[string]string)
+		for _,v := range list {
+			details.View[strings.Trim(string(v[1])," \t\r\n")] = strings.Trim(string(v[2])," \t\r\n")
+		}
+	}
 
-
-	//fmt.Printf("details=%v\n", details)
 	return details, nil
 }
