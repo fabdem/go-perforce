@@ -30,7 +30,7 @@ import (
 //		... path D:\a\local\path\file
 //
 func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
-	p.log(fmt.Sprintf("GetP4Where(%s)\n", depotFile))
+	p.logThis(fmt.Sprintf("\nGetP4Where(%s)", depotFile))
 
 	var out []byte
 
@@ -43,7 +43,7 @@ func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
 	if err != nil {
 		return fileName, errors.New(fmt.Sprintf("p4 command line error %s - %s ", err, out))
 	}
-	p.log(fmt.Sprintf("Response=%s\n", string(out)))
+	p.logThis(fmt.Sprintf("	Response=%s", string(out)))
 
 	// Parse result
 	fields := strings.Split(string(out), "... path ")
@@ -52,7 +52,7 @@ func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
 	}
 	fileName = fields[1]
 	fileName = strings.Trim(fields[1], "\r\n")
-	p.log(fmt.Sprintf("filename=%s\n", fileName))
+	p.logThis(fmt.Sprintf("	filename=%s", fileName))
 
 	return fileName, nil
 }
@@ -67,7 +67,7 @@ func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
 //		- its 'perfore name' with revision number for info. This is not the temp file name
 //		- err code, nil if okay
 func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName string, err error) {
-	p.log("GetFile()\n")
+	p.logThis(fmt.Sprintf("\nGetFile(%s, %d)",depotFile,rev))
 
 	fileName = filepath.Base(depotFile) // extract filename
 	ext := filepath.Ext(depotFile)      // Read extension
@@ -82,7 +82,7 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName
 		fileName = fileName[0:len(fileName)-len(ext)] + "#" + strconv.Itoa(rev) + ext
 	} // fileName is provided as a convenience
 
-	p.log(fmt.Sprintf("fileName=%s rev=%d\n", fileName, rev))
+	p.logThis(fmt.Sprintf("	fileName=%s rev=%d", fileName, rev))
 
 	tempf, err := ioutil.TempFile("", "perforce_getfile_") // Create a temporary file placeholder.
 	if err != nil {
@@ -122,7 +122,7 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName
 //	Get from P4 the head revision number of a file
 // 	depotFileName: file path and name in P4
 func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
-	p.log("GetHeadRev()")
+	p.logThis(fmt.Sprintf("\nGetHeadRev(%s)",depotFileName))
 
 	var out []byte
 
@@ -139,7 +139,7 @@ func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
 		return 0, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
-	p.log(fmt.Sprintf("received from P4: %s", out))
+	p.logThis(fmt.Sprintf("	received from P4: %s", out))
 
 	// Read version
 	// e.g. //Project/dev/localization/afile_bulgarian.txt#8 - edit change 4924099 (utf16)
@@ -151,7 +151,7 @@ func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
 	}
 	sRev := string(out[idxBeg:idxEnd])
 
-	p.log(fmt.Sprintf("Revision: %s", sRev))
+	p.logThis(fmt.Sprintf("	Revision: %s", sRev))
 
 	rev, err = strconv.Atoi(sRev) // Check format
 	if err != nil {
@@ -181,7 +181,7 @@ Affected files ...
 */
 
 func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, user string, workspace string, err error) {
-	p.log("GetChangeListContent()\n")
+	p.logThis(fmt.Sprintf("\nGetChangeListContent(%d),changeList"))
 
 	var out []byte
 	m_files = make(map[string]int)
@@ -283,16 +283,16 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 	return m_files, sUSER, sWS, nil
 }
 
-
 type T_FileDetails struct {
-	Path			string
-	LastVersion		int
-	CL				int
-	EditDate   		string
-	Owner			string
-	Workspace		string
-	Type			string
-	Comment			string  // Short version truncated to 31 characters
+	Path        string
+	LastVersion int
+	CL          int
+	Action			string
+	EditDate    string
+	Owner       string
+	Workspace   string
+	Type        string
+	Comment     string // Short version truncated to 31 characters
 }
 
 // GetFileInDepotDetails()
@@ -306,7 +306,7 @@ type T_FileDetails struct {
 //		- err code, nil if okay
 
 func (p *Perforce) GetFileInDepotDetails(FileInDepot string) (details T_FileDetails, err error) {
-	p.log(fmt.Sprintf("GetFileInDepotDetails(%s)\n", FileInDepot))
+	p.logThis(fmt.Sprintf("\nGetFileInDepotDetails(%s)", FileInDepot))
 
 	var out []byte
 
@@ -324,44 +324,50 @@ func (p *Perforce) GetFileInDepotDetails(FileInDepot string) (details T_FileDeta
 	}
 
 	// Get the individual parameters
-	pattern, err := regexp.Compile(`(?m)^(//.*)$[\n\r]*^... #([0-9]*) change ([0-9]*) edit on ([0-9/]*) by ([^@]*)@([^ ]*) \((.*)\) '(.*)'`)
+	pattern, err := regexp.Compile(`(?m)^(//.*)$[\n\r]*^... #([0-9]*) change ([0-9]*) ([a-z]*) on ([0-9/]*) by ([^@]*)@([^ ]*) \((.*)\) '(.*)'`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
 
 	matches := pattern.FindSubmatch(out)
-	if len(matches) < 9 { // Not enough fields identified and parsed
+	if len(matches) < 10 { // Not enough fields identified and parsed
 		return details, errors.New(fmt.Sprintf("Error parsing - nb field read: %d received from p4: %s", len(matches), out))
 	}
 
-	details.Path  				= strings.Trim(string(matches[1]), " \r\n\t")
-	if details.Path != FileInDepot {	return details, errors.New(fmt.Sprintf("Error parsing - wrong file details returned by p4: %s", details.Path))	}
-	details.LastVersion, err	= strconv.Atoi(string(matches[2]))
-	if err != nil {	return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))	}
-	details.CL, err				= strconv.Atoi(string(matches[3]))
-	if err != nil {	return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))	}
-	details.EditDate  			= strings.Trim(string(matches[4]), " \r\n\t")
-	details.Owner				= strings.Trim(string(matches[5]), " \r\n\t")
-	details.Workspace			= strings.Trim(string(matches[6]), " \r\n\t")
-	details.Type				= strings.Trim(string(matches[7]), " \r\n\t")
-	details.Comment				= strings.Trim(string(matches[8]), " \r\n\t") // We get a truncated to 31 characters version
+	details.Path = strings.Trim(string(matches[1]), " \r\n\t")
+	if details.Path != FileInDepot {
+		return details, errors.New(fmt.Sprintf("Error parsing - wrong file details returned by p4: %s", details.Path))
+	}
+	details.LastVersion, err = strconv.Atoi(string(matches[2]))
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))
+	}
+	details.CL, err = strconv.Atoi(string(matches[3]))
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))
+	}
+	details.Action = strings.Trim(string(matches[4]), " \r\n\t")
+	details.EditDate = strings.Trim(string(matches[5]), " \r\n\t")
+	details.Owner = strings.Trim(string(matches[6]), " \r\n\t")
+	details.Workspace = strings.Trim(string(matches[7]), " \r\n\t")
+	details.Type = strings.Trim(string(matches[8]), " \r\n\t")
+	details.Comment = strings.Trim(string(matches[9]), " \r\n\t") // We get a truncated to 31 characters version
 
 	return details, nil
 }
 
 type T_WSDetails struct {
-	Name			string
-	Update			string
-	Access			string
-	Owner   		string
-	Description		string
-	Root			string
-	Options			[]string
-	SubmitOptions	[]string
-	LineEnd			string
-	View			map[string]string
+	Name          string
+	Update        string
+	Access        string
+	Owner         string
+	Description   string
+	Root          string
+	Options       []string
+	SubmitOptions []string
+	LineEnd       string
+	View          map[string]string
 }
-
 
 // GetWorkspaceDetails()
 //	Get workspace details from: p4 -c wwww -u xxxxx p4 client -o
@@ -372,7 +378,7 @@ type T_WSDetails struct {
 //		- err code, nil if okay
 
 func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, err error) {
-	p.log(fmt.Sprintf("GetWorkspaceDetails(%s)\n", workspace))
+	p.logThis(fmt.Sprintf("\nGetWorkspaceDetails(%s)", workspace))
 
 	var out []byte
 
@@ -404,14 +410,14 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 		return details, errors.New(fmt.Sprintf("Error parsing - nb field read: %d received from p4: %s", len(matches), out))
 	}
 
-	details.Name  			= strings.Trim(string(matches[1])," \t\r\n")
-	details.Update 			= strings.Trim(string(matches[2])," \t\r\n")
-	details.Access			= strings.Trim(string(matches[3])," \t\r\n")
-	details.Owner   		= strings.Trim(string(matches[4])," \t\r\n")
-	details.Description		= strings.Trim(string(matches[5])," \t\r\n")
-	details.Root			= strings.Trim(string(matches[6])," \t\r\n")
-	details.Options			= strings.Split(strings.Trim(string(matches[7])," \t\r\n"), " ")
-	details.SubmitOptions	= strings.Split(strings.Trim(string(matches[8])," \t\r\n"), " ")
+	details.Name = strings.Trim(string(matches[1]), " \t\r\n")
+	details.Update = strings.Trim(string(matches[2]), " \t\r\n")
+	details.Access = strings.Trim(string(matches[3]), " \t\r\n")
+	details.Owner = strings.Trim(string(matches[4]), " \t\r\n")
+	details.Description = strings.Trim(string(matches[5]), " \t\r\n")
+	details.Root = strings.Trim(string(matches[6]), " \t\r\n")
+	details.Options = strings.Split(strings.Trim(string(matches[7]), " \t\r\n"), " ")
+	details.SubmitOptions = strings.Split(strings.Trim(string(matches[8]), " \t\r\n"), " ")
 
 	// Get the list of files depot/workspace
 	// First find the index of the begining of the list dans le Buffer
@@ -423,17 +429,17 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 	if len(idxs) < 3 {
 		return details, errors.New(fmt.Sprintf("Parsing workspace error - can't find list of depot/ws files"))
 	}
-	fmt.Printf("match=%s\n", out[idxs[2]:idxs[3]])
+	// fmt.Printf("match=%s\n", out[idxs[2]:idxs[3]])
 
-	out = out[idxs[3]:]  // Keep list of of depot/ws files only - trash everything before
+	out = out[idxs[3]:] // Keep list of of depot/ws files only - trash everything before
 
 	// Get all the pairs depot/ws files
 	pattern, err = regexp.Compile(`(?m).*^\t(//.*) "?(//[^"\n]*)`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
-	list := pattern.FindAllSubmatch(out,-1)
-	
+	list := pattern.FindAllSubmatch(out, -1)
+
 	// Check result validity
 	if len(list) > 0 {
 		if len(list[0]) < 3 {
@@ -441,8 +447,8 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 		}
 		// Get results in a map
 		details.View = make(map[string]string)
-		for _,v := range list {
-			details.View[strings.Trim(string(v[1])," \t\r\n")] = strings.Trim(string(v[2])," \t\r\n")
+		for _, v := range list {
+			details.View[strings.Trim(string(v[1]), " \t\r\n")] = strings.Trim(string(v[2]), " \t\r\n")
 		}
 	}
 

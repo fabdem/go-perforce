@@ -4,18 +4,17 @@ package perforce
 
 import (
 	"bufio"
-	"errors"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	// "path/filepath"
 	// "regexp"
+	"regexp"
 	"strconv"
 	"strings"
-	"regexp"
-
 )
 
 type T_DiffRes struct {
@@ -46,7 +45,7 @@ type T_DiffRes struct {
 //		- Error
 //
 func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err error) {
-	p.log(fmt.Sprintf("P4Diff(%s)", depotFile))
+	p.logThis(fmt.Sprintf("\nP4Diff(%s)", depotFile))
 
 	res.FileHR = depotFile
 
@@ -65,7 +64,7 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 		}
 
 		if res.Utf16crlf { // Divide by 2 added and removed # of lines if encoding utf16 and line ending cr/lf
-			res.AddedLines   <<= 1
+			res.AddedLines <<= 1
 			res.ChangedLines <<= 1
 			res.RemovedLines <<= 1
 		}
@@ -116,7 +115,7 @@ changed 1 chunks 3 / 3 lines
 */
 
 func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRes, err error) {
-	p.log(fmt.Sprintf("p4DiffHRvsWS(%s, %s)\n", fileInDepot, fileInWS))
+	p.logThis(fmt.Sprintf("\np4DiffHRvsWS(%s, %s)", fileInDepot, fileInWS))
 
 	// Get its line count
 	fws, err := os.Open(fileInWS)
@@ -125,7 +124,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 	}
 	defer fws.Close()
 
-	p.log(fmt.Sprintf("Get workspace file line count (%s)", fileInWS))
+	p.logThis(fmt.Sprintf("	Get workspace file line count (%s)", fileInWS))
 	r.NbLinesWS, r.Utf16crlf, err = lineCounter(fws)
 	if err != nil {
 		return r, err
@@ -153,7 +152,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 		return r, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
-	p.log(fmt.Sprintf(" Diff response= %s", out))
+	p.logThis(fmt.Sprintf("	Diff response= %s", out))
 
 	// Parse result
 	// greedy match for 1st path since it's a p4 path, lazy match the second one to be platform agnostic
@@ -176,7 +175,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 	// fmt.Printf("in toolkit removedLines=%d\n", removedLines)
 	// fmt.Printf("in toolkit changedLines=%d\n", changedLines)
 
-	if (err1 != nil) || (err2 != nil) || (err3 != nil)  {
+	if (err1 != nil) || (err2 != nil) || (err3 != nil) {
 		return r, errors.New(fmt.Sprintf("5 - P4 command line - unexpected response=%s\n", out))
 	}
 
@@ -220,7 +219,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 //		- Err code, nil if okay
 
 func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRes, err error) {
-	p.log(fmt.Sprintf("customDiffHRvsWS(%s, %s)\n", fileInDepot, fileInWS))
+	p.logThis(fmt.Sprintf("\ncustomDiffHRvsWS(%s, %s)", fileInDepot, fileInWS))
 
 	fWS, err := os.Open(fileInWS)
 	if err != nil {
@@ -230,7 +229,7 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 
 	// Get head revision file
 	tempHR, fileHR, err := p.GetFile(fileInDepot, 0)
-	p.log(fmt.Sprintf("	Head Rev=%s\n", fileHR))
+	p.logThis(fmt.Sprintf("	Head Rev=%s", fileHR))
 	if err != nil {
 		return r, errors.New(fmt.Sprintf("Error getting head rev: %s", fileHR))
 	}
@@ -255,7 +254,7 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 		}
 		r.NbLinesHR++
 	}
-	p.log(fmt.Sprintf("	Head rev file - nb lines read %d)\n", r.NbLinesHR))
+	p.logThis(fmt.Sprintf("	Head rev file - nb lines read %d)", r.NbLinesHR))
 	if err := scanner.Err(); err != nil {
 		return r, errors.New(fmt.Sprintf("Error parsing head rev file: %s", fileInDepot))
 	}
@@ -280,7 +279,7 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 		}
 		r.NbLinesWS++
 	}
-	p.log(fmt.Sprintf("	Workspace file - nb lines read %d)\n", r.NbLinesWS))
+	p.logThis(fmt.Sprintf("	Workspace file - nb lines read %d)", r.NbLinesWS))
 	if err := scanner.Err(); err != nil {
 		return r, errors.New(fmt.Sprintf("Error parsing the workspace file: %s", fileInWS))
 	}
@@ -294,7 +293,7 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 	tempf.Close()
 	err = os.Remove(tempHR)
 	if err != nil {
-		p.log(fmt.Sprintf("Error deleting temp file %s %s)\n", tempHR, err))
+		p.logThis(fmt.Sprintf("	Error deleting temp file %s %s)", tempHR, err))
 	} // Non fatal error
 
 	return r, nil

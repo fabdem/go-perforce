@@ -86,7 +86,7 @@ func (p *Perforce) GetDiffIgnoreSpace() (flag bool) {
 // Test connection to server
 // 	Execute p4 info command - recommended to check connection to server
 func (p *Perforce) P4Info() (output string, err error) {
-	p.log("P4Info()")
+	p.logThis("\nP4Info()")
 	out, err := exec.Command(p.p4Cmd, "info").CombinedOutput()
 	if err != nil {
 		return "", errors.New(fmt.Sprintf("\"p4 info\" exec error: %v %s", err, out))
@@ -100,26 +100,15 @@ func (p *Perforce) SetDebug(debug bool, logWriter io.Writer) {
 	p.logWriter = logWriter
 }
 
-/* // log - traces errors if debug set to true.
-func (p *Perforce) log(inf interface{}) {
-	if p.debugFlg {
-		if p.logWriter != nil {
-			p.logWriter.Printf("%v", inf)
-		} else {
-			log.Println(inf)
-		}
-	}
-} */
-
 // Log writer
-func (p *Perforce) log(a interface{}) {
+func (p *Perforce) logThis(a interface{}) {
 	if p.debug {
 		if p.logWriter != nil {
 			timestamp := time.Now().Format(time.RFC3339)
 			msg := fmt.Sprintf("%v: %v", timestamp, a)
 			fmt.Fprintln(p.logWriter, msg)
 		} else {
-			log.Println(a)
+			log.Println("p4", a)
 		}
 	}
 }
