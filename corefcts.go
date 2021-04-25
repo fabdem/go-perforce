@@ -161,7 +161,123 @@ func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
 	return rev, nil
 }
 
-// GetPendingCLContent()
+// GetCLContent()
+//	Get content from a Change List
+//	Do a: p4 -uxxxxx describe -s 6102201
+// 	Input:
+//		- Change List number
+//  Return:
+//		- a map of files (depot path and name) and rev numbers
+//		- CL's user and workspace for sanity check
+//		- err code, nil if okay
+/*
+p4 -uxxxx describe -s 6102201
+Change 6102201 by xxxx@yyyyyyyy on 2020/09/20 21:02:41 *pending*
+	Test diff
+Affected files ...
+... //zzzzzz/dev/locScriptTesting/main_french.json#1 edit
+... //zzzzzz/dev/locScriptTesting/yy_french.txt#18 edit
+... //zzzzzz/dev/locScriptTesting/yy_german.txt#8 edit
+*/
+type T_CLFileDetails struct {
+	Rev 		int
+	Action 	string
+}
+type T_CLDetails struct {
+	CLNb				int
+	User				string
+	Workspace		string
+	DateStamp		string
+	Pending			bool
+	Comment			string
+	M_files			map[string] T_CLFileDetails
+}
+
+func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error) {
+	p.logThis(fmt.Sprintf("\nGetCLContent(%d),changeList"))
+
+	var out []byte
+
+	if len(p.user) > 0 {
+		// fmt.Printf(p4Cmd + " -u " + user + " describe " + "-s " + strconv.Itoa(changeList) + "\n")
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "describe", "-s", strconv.Itoa(changeList)).CombinedOutput()
+		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
+	} else {
+		//fmt.Printf(p.p4Cmd  + " describe " + "-s " + strconv.Itoa(changeList) + "\n")
+		out, err = exec.Command(p.p4Cmd, "describe", "-s", strconv.Itoa(changeList)).CombinedOutput()
+		// out, err := exec.Command(p.p4Cmd, "info").Output()
+	}
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+	}
+
+	// Parse response
+	pattern, err := regexp.Compile(`(?m)^Change ([0-9]*) by ([^ @]*)@([^ @]*) on ([0-9/]* [0-9:]*)([a-z\* ]*)[\r\n]^((.|\r|\n)*[\r\n])^Affected files ...[\r\n][\r\n]... //`)
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("Regex compile error: %v", err))
+	}
+
+	matches := pattern.FindSubmatch(out)
+	if len(matches) < 6 { // Not enough fields identified and parsed
+		return details, errors.New(fmt.Sprintf("Error parsing - nb field read: %d received from p4: %s", len(matches), out))
+	}
+
+	// Record CL global details
+	details.CLNb, err = strconv.Atoi(string(matches[1]))
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))
+	}
+	details.User = strings.Trim(string(matches[2]), " \r\n\t")
+	details.Workspace = strings.Trim(string(matches[3]), " \r\n\t")
+	details.DateStamp = strings.Trim(string(matches[4]), " \r\n\t")
+	if strings.Trim(string(matches[5]), " \r\n\t") == "*pending*" {
+		details.Pending = true
+	}
+	details.Comment = strings.Trim(string(matches[6]), " \r\n\t")
+
+	// Strip beginning of the response now that we've retrieved what we needed
+	pattern, err = regexp.Compile(`(?m)^Affected files \.\.\.[\r\n][\r\n](\.\.\.) //`)
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
+	}
+	idxs := pattern.FindSubmatchIndex(out)
+	if len(idxs) < 3 {
+		return details, errors.New(fmt.Sprintf("Parsing CL - can't find a list of files"))
+	}
+	// fmt.Printf("match=%s\n", out[idxs[2]:idxs[3]])
+
+	out = out[idxs[2]:] // Keep list of files only - trash everything before
+
+	// Get all the files
+	pattern, err = regexp.Compile(`(?m)^\.\.\. (//.*)#([0-9]*) ([a-z]*)$`)
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
+	}
+	list := pattern.FindAllSubmatch(out, -1)
+
+	// Check result validity
+	if len(list) > 0 {
+		if len(list[0]) < 4 {
+			return details, errors.New(fmt.Sprintf("Parsing workspace error - reading files in CL incorrect: %s", out))
+		}
+		// Get results in map
+		details.M_files = make(map[string] T_CLFileDetails)
+		for _, v := range list {
+			rev, err := strconv.Atoi(string(v[2]))
+			if err != nil {
+				return details, errors.New(fmt.Sprintf("Error parsing - Format error conv to number: %v", err))
+			}
+			filename := strings.Trim(string(v[1]), " \t\r\n")
+			action :=  strings.Trim(string(v[3]), " \t\r\n")
+			details.M_files[filename] = T_CLFileDetails {Rev: rev, Action: action}
+		}
+	}
+
+	return details, nil
+}
+
+
+// GetPendingCLContent() DEPRECATED USE GetCLContent()INSTEAD
 //	Get content from a pending Change List
 //	Do a: p4 -uxxxxx describe 6102201
 // 	Input:
@@ -283,6 +399,16 @@ func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, 
 	return m_files, sUSER, sWS, nil
 }
 
+// GetFileInDepotDetails()
+//	Get the details from a file in the depot from: p4 -c wwww -u xxxxx p4 filelog -m 1
+//  User and workspace don't seem to be necessary but leaving them anyway
+//	We get a truncated version of the comments (no -l or -L). They are ' delimited so safer to parse that way.
+// 	Input:
+//		- path to file in depot
+//  Return:
+//		- structure with details
+//		- err code, nil if okay
+
 type T_FileDetails struct {
 	Path        string
 	LastVersion int
@@ -294,16 +420,6 @@ type T_FileDetails struct {
 	Type        string
 	Comment     string // Short version truncated to 31 characters
 }
-
-// GetFileInDepotDetails()
-//	Get the details from a file in the depot from: p4 -c wwww -u xxxxx p4 filelog -m 1
-//  User and workspace don't seem to be necessary but leaving them anyway
-//	We get a truncated version of the comments (no -l or -L). They are ' delimited so safer to parse that way.
-// 	Input:
-//		- path to file in depot
-//  Return:
-//		- structure with details
-//		- err code, nil if okay
 
 func (p *Perforce) GetFileInDepotDetails(FileInDepot string) (details T_FileDetails, err error) {
 	p.logThis(fmt.Sprintf("\nGetFileInDepotDetails(%s)", FileInDepot))
@@ -356,6 +472,14 @@ func (p *Perforce) GetFileInDepotDetails(FileInDepot string) (details T_FileDeta
 	return details, nil
 }
 
+// GetWorkspaceDetails()
+//	Get workspace details from: p4 -c wwww -u xxxxx p4 client -o
+// 	Input:
+//		- workspace - optional if not present uses current workspace
+//  Return:
+//		- structure with details
+//		- err code, nil if okay
+
 type T_WSDetails struct {
 	Name          string
 	Update        string
@@ -368,14 +492,6 @@ type T_WSDetails struct {
 	LineEnd       string
 	View          map[string]string
 }
-
-// GetWorkspaceDetails()
-//	Get workspace details from: p4 -c wwww -u xxxxx p4 client -o
-// 	Input:
-//		- workspace - optional if not present uses current workspace
-//  Return:
-//		- structure with details
-//		- err code, nil if okay
 
 func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, err error) {
 	p.logThis(fmt.Sprintf("\nGetWorkspaceDetails(%s)", workspace))
