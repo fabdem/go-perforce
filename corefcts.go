@@ -190,7 +190,7 @@ type T_CLDetails struct {
 	DateStamp		string
 	Pending			bool
 	Comment			string
-	M_files			map[string] T_CLFileDetails
+	List				map[string] T_CLFileDetails
 }
 
 func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error) {
@@ -261,7 +261,7 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 			return details, errors.New(fmt.Sprintf("Parsing workspace error - reading files in CL incorrect: %s", out))
 		}
 		// Get results in map
-		details.M_files = make(map[string] T_CLFileDetails)
+		details.List = make(map[string] T_CLFileDetails)
 		for _, v := range list {
 			rev, err := strconv.Atoi(string(v[2]))
 			if err != nil {
@@ -269,7 +269,7 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 			}
 			filename := strings.Trim(string(v[1]), " \t\r\n")
 			action :=  strings.Trim(string(v[3]), " \t\r\n")
-			details.M_files[filename] = T_CLFileDetails {Rev: rev, Action: action}
+			details.List[filename] = T_CLFileDetails {Rev: rev, Action: action}
 		}
 	}
 
