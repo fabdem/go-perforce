@@ -299,105 +299,21 @@ Affected files ...
 func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, user string, workspace string, err error) {
 	p.logThis(fmt.Sprintf("\nGetChangeListContent(%d),changeList"))
 
-	var out []byte
 	m_files = make(map[string]int)
 
-	if len(p.user) > 0 {
-		// fmt.Printf(p4Cmd + " -u " + user + " describe " + " " + strconv.Itoa(changeList) + "\n")
-		out, err = exec.Command(p.p4Cmd, "-u", p.user, "describe", strconv.Itoa(changeList)).CombinedOutput()
-		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
-	} else {
-		//fmt.Printf(p.p4Cmd  + " describe " + " " + strconv.Itoa(changeList) + "\n")
-		out, err = exec.Command(p.p4Cmd, "describe", strconv.Itoa(changeList)).CombinedOutput()
-		// out, err := exec.Command(p.p4Cmd, "info").Output()
-	}
-	if err != nil {
-		return m_files, "", "", errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
-	}
+	res, err := p.GetCLContent(6511050)
+	if err == nil {
 
-	// Parse result file
-	cue1 := "Change "
-	cue2 := " by "
-	cue3 := "@"
-	cue4 := " on "
-	cue5 := "Affected files ..."
-	cue6 := "... "
-	cue7 := "#"
-	cue8 := " edit"
-	cue9 := " add"
-
-	// Get sCL
-	r, _ := regexp.Compile(cue1 + `\d+` + cue2)
-	sCL := r.FindString(string(out))
-	sCL = strings.TrimPrefix(sCL, cue1)
-	sCL = strings.TrimSuffix(sCL, cue2)
-	cl, _ := strconv.Atoi(sCL)
-
-	// Get User
-	r, _ = regexp.Compile(cue2 + `[^` + cue3 + `]+` + cue3)
-	sUSER := r.FindString(string(out))
-	sUSER = strings.TrimPrefix(sUSER, cue2)
-	sUSER = strings.TrimSuffix(sUSER, cue3)
-
-	// Get workspace
-	r, _ = regexp.Compile(cue3 + `[^ ]+` + cue4)
-	sWS := r.FindString(string(out))
-	sWS = strings.TrimPrefix(sWS, cue3)
-	sWS = strings.TrimSuffix(sWS, cue4)
-
-	// Add a check on the values above since they are mandatory
-	if sCL == "" || sUSER == "" || sWS == "" || cl != changeList {
-		return m_files, "", "", errors.New(fmt.Sprintf("Error parsing P4 response - missing or incorrect  field(s) %s %s %s in out=%s", sCL, sUSER, sWS, out))
-		return
-	}
-
-	// Move start at the beginning of the file list
-	idx := strings.Index(string(out), cue5)
-	if idx == -1 {
-		return m_files, "", "", errors.New(fmt.Sprintf("Error parsing P4 response - missing field %s in out=%s", cue5, out))
-	}
-	idx += strings.Index(string(out[idx:]), cue6)
-	if idx == -1 {
-		return m_files, "", "", errors.New(fmt.Sprintf("Error parsing P4 response - missing field %s in out=%s", cue6, out))
-	}
-
-	// Prep regexs
-	r_file, _ := regexp.Compile(cue6 + `//[^` + cue7 + `]+` + cue7)
-	r_rev, _ := regexp.Compile(cue7 + `\d+(` + cue8 + `|` + cue9 + `)`)
-
-	lines := strings.Split(string(out[idx:]), "\n")
-
-	// Get files
-	for _, line := range lines {
-		// fmt.Printf("line %s\n", line)
-		sFILE := r_file.FindString(line)
-		sFILE = strings.TrimPrefix(sFILE, cue6)
-		sFILE = strings.TrimSuffix(sFILE, cue7)
-		// fmt.Printf("FILE=%s\n",sFILE)
-
-		sREV := r_rev.FindString(line)
-		sREV = strings.TrimPrefix(sREV, cue7)
-		if strings.Index(sREV, cue8) != -1 {
-			sREV = strings.TrimSuffix(sREV, cue8)
-		} else {
-			sREV = strings.TrimSuffix(sREV, cue9)
-		}
-		// fmt.Printf("REV=%s\n",sREV)
-
-		if sFILE == "" || sREV == "" { // If empty we're done
-			break
+		for k,v := range res.List {
+			m_files[k] = v.Rev
 		}
 
-		version, err := strconv.Atoi(sREV)
-		if err != nil {
-			return m_files, "", "", errors.New(fmt.Sprintf("Error parsing P4 response - incorrect revision number in line=%s,  err=%s", line, err))
-		}
-
-		m_files[sFILE] = version // populate the map
+		user = res.User
+		workspace = res.Workspace
 	}
-
-	return m_files, sUSER, sWS, nil
+	return m_files, user, workspace, err
 }
+
 
 // GetFileInDepotDetails()
 //	Get the details from a file in the depot from: p4 -c wwww -u xxxxx p4 filelog -m 1
