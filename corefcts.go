@@ -30,7 +30,7 @@ import (
 //		... path D:\a\local\path\file
 //
 func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
-	p.logThis(fmt.Sprintf("\nGetP4Where(%s)", depotFile))
+	p.logThis(fmt.Sprintf("GetP4Where(%s)", depotFile))
 
 	var out []byte
 
@@ -67,7 +67,7 @@ func (p *Perforce) GetP4Where(depotFile string) (fileName string, err error) {
 //		- its 'perfore name' with revision number for info. This is not the temp file name
 //		- err code, nil if okay
 func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName string, err error) {
-	p.logThis(fmt.Sprintf("\nGetFile(%s, %d)",depotFile,rev))
+	p.logThis(fmt.Sprintf("GetFile(%s, %d)",depotFile,rev))
 
 	fileName = filepath.Base(depotFile) // extract filename
 	ext := filepath.Ext(depotFile)      // Read extension
@@ -122,7 +122,7 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName
 //	Get from P4 the head revision number of a file
 // 	depotFileName: file path and name in P4
 func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
-	p.logThis(fmt.Sprintf("\nGetHeadRev(%s)",depotFileName))
+	p.logThis(fmt.Sprintf("GetHeadRev(%s)",depotFileName))
 
 	var out []byte
 
@@ -194,7 +194,7 @@ type T_CLDetails struct {
 }
 
 func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error) {
-	p.logThis(fmt.Sprintf("\nGetCLContent(%d),changeList"))
+	p.logThis(fmt.Sprintf("GetCLContent(%d)",changeList))
 
 	var out []byte
 
@@ -212,7 +212,7 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 	}
 
 	// Parse response
-	pattern, err := regexp.Compile(`(?m)^Change ([0-9]*) by ([^ @]*)@([^ @]*) on ([0-9/]* [0-9:]*)([a-z\* ]*)[\r\n]^((.|\r|\n)*[\r\n])^Affected files ...[\r\n][\r\n]... //`)
+	pattern, err := regexp.Compile(`(?m)^Change ([0-9]*) by ([^ @]*)@([^ @]*) on ([0-9/]* [0-9:]*)([a-z\* ]*)[\r\n]*^((.|\r|\n)*[\r\n]*)^Affected files ...[\r\n]*... //`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("Regex compile error: %v", err))
 	}
@@ -236,7 +236,7 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 	details.Comment = strings.Trim(string(matches[6]), " \r\n\t")
 
 	// Strip beginning of the response now that we've retrieved what we needed
-	pattern, err = regexp.Compile(`(?m)^Affected files \.\.\.[\r\n][\r\n](\.\.\.) //`)
+	pattern, err = regexp.Compile(`(?m)^Affected files \.\.\.[\r\n]*(\.\.\.) //`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
@@ -249,11 +249,13 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 	out = out[idxs[2]:] // Keep list of files only - trash everything before
 
 	// Get all the files
-	pattern, err = regexp.Compile(`(?m)^\.\.\. (//.*)#([0-9]*) ([a-z]*)$`)
+	pattern, err = regexp.Compile(`(?m)^\.\.\. (//.*)#([0-9]*) ([a-z]*)[\r\n]*`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}
 	list := pattern.FindAllSubmatch(out, -1)
+
+	p.logThis(fmt.Sprintf(" Nb files in CL: %d",len(list)))
 
 	// Check result validity
 	if len(list) > 0 {
@@ -297,7 +299,7 @@ Affected files ...
 */
 
 func (p *Perforce) GetPendingCLContent(changeList int) (m_files map[string]int, user string, workspace string, err error) {
-	p.logThis(fmt.Sprintf("\nGetChangeListContent(%d),changeList"))
+	p.logThis(fmt.Sprintf("GetChangeListContent(%d),changeList"))
 
 	m_files = make(map[string]int)
 
@@ -338,7 +340,7 @@ type T_FileDetails struct {
 }
 
 func (p *Perforce) GetFileInDepotDetails(FileInDepot string) (details T_FileDetails, err error) {
-	p.logThis(fmt.Sprintf("\nGetFileInDepotDetails(%s)", FileInDepot))
+	p.logThis(fmt.Sprintf("GetFileInDepotDetails(%s)", FileInDepot))
 
 	var out []byte
 
@@ -410,7 +412,7 @@ type T_WSDetails struct {
 }
 
 func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, err error) {
-	p.logThis(fmt.Sprintf("\nGetWorkspaceDetails(%s)", workspace))
+	p.logThis(fmt.Sprintf("GetWorkspaceDetails(%s)", workspace))
 
 	var out []byte
 
@@ -466,7 +468,7 @@ func (p *Perforce) GetWorkspaceDetails(workspace string) (details T_WSDetails, e
 	out = out[idxs[3]:] // Keep list of of depot/ws files only - trash everything before
 
 	// Get all the pairs depot/ws files
-	pattern, err = regexp.Compile(`(?m).*^\t(//.*) "?(//[^"\n]*)`)
+	pattern, err = regexp.Compile(`(?m).*^\t(//.*) "?(//[^"\n\n]*)`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("regex compile error: %v", err))
 	}

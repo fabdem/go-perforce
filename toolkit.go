@@ -45,7 +45,7 @@ type T_DiffRes struct {
 //		- Error
 //
 func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err error) {
-	p.logThis(fmt.Sprintf("\nP4Diff(%s)", depotFile))
+	p.logThis(fmt.Sprintf("P4Diff(%s)", depotFile))
 
 	res.FileHR = depotFile
 
@@ -115,7 +115,7 @@ changed 1 chunks 3 / 3 lines
 */
 
 func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRes, err error) {
-	p.logThis(fmt.Sprintf("\np4DiffHRvsWS(%s, %s)", fileInDepot, fileInWS))
+	p.logThis(fmt.Sprintf("p4DiffHRvsWS(%s, %s)", fileInDepot, fileInWS))
 
 	// Get its line count
 	fws, err := os.Open(fileInWS)
@@ -219,7 +219,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 //		- Err code, nil if okay
 
 func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRes, err error) {
-	p.logThis(fmt.Sprintf("\ncustomDiffHRvsWS(%s, %s)", fileInDepot, fileInWS))
+	p.logThis(fmt.Sprintf("customDiffHRvsWS(%s, %s)", fileInDepot, fileInWS))
 
 	fWS, err := os.Open(fileInWS)
 	if err != nil {
