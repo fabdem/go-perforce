@@ -319,6 +319,11 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 		}
 	}
 
+	// Check that we received the correct CL - returns the details even if wrong
+	if changeList != details.CLNb {
+		return details, errors.New(fmt.Sprintf("Perforce error - Wrong change list data received: %d, %v", details.CLNb, details))
+	}
+
 	return details, nil
 }
 
