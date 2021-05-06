@@ -161,6 +161,50 @@ func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
 	return rev, nil
 }
 
+
+// CheckFileExitsInDepot()
+//	Check if a path exists in the depot.
+//	Exclude deleted, purged, or archived files. The files that remain
+//	are those available for syncing or integration.
+//	Similar to GetHeadRev() except that the file not existing is not an error.
+// 	depotFileName: file path and name in P4
+func (p *Perforce) CheckFileExitsInDepot(depotFileName string) (exists bool, err error) {
+	p.logThis(fmt.Sprintf("CheckFileExitsInDepot(%s)",depotFileName))
+
+	var out []byte
+
+	if len(p.user) > 0 {
+		// fmt.Printf(p4Cmd + " -u " + user + " files -e" + " " + depotFile + "\n")
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "files", "-e", depotFileName).CombinedOutput()
+		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
+	} else {
+		//fmt.Printf(p.p4Cmd  + " files -e" + " " + depotFileName + "\n")
+		out, err = exec.Command(p.p4Cmd, "files", "-e", depotFileName).CombinedOutput()
+		// out, err := exec.Command(p.p4Cmd, "info").Output()
+	}
+	if err != nil {
+		return false, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+	}
+
+	p.logThis(fmt.Sprintf("	received from P4: %s", out))
+
+	// Read version
+	// e.g. //Project/dev/localization/afile_bulgarian.txt#8 - edit change 4924099 (utf16)
+	idxBeg := strings.LastIndex(string(out), "#") + len("#")
+	idxEnd := strings.LastIndex(string(out), " - ")
+	// Check response to prevent out of bound index
+	if idxBeg <= -1 || idxEnd <= -1 || idxBeg >= idxEnd {
+		return false, errors.New(fmt.Sprintf("Format error in P4 response: %s  %v", string(out), err))
+	}
+	sRev := string(out[idxBeg:idxEnd])
+
+	p.logThis(fmt.Sprintf("	Revision: %s", sRev))
+
+
+	return true, nil
+}
+
+
 // GetCLContent()
 //	Get content from a Change List
 //	Do a: p4 -uxxxxx describe -s 6102201
