@@ -256,7 +256,7 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 	}
 
 	// Parse response
-	pattern, err := regexp.Compile(`(?m)^Change ([0-9]*) by ([^ @]*)@([^ @]*) on ([0-9/]* [0-9:]*)([a-z\* ]*)[\r\n]*^((.|\r|\n)*[\r\n]*)^Affected files ...[\r\n]*... //`)
+	pattern, err := regexp.Compile(`(?m)^Change ([0-9]*) by ([^ @]*)@([^ @]*) on ([0-9/]* [0-9:]*)([a-z\* ]*)[\r\n]*^((.|\r|\n)*[\r\n]*)^Affected files ...[\r\n]*`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("Regex compile error: %v", err))
 	}
