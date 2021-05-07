@@ -118,90 +118,111 @@ func (p *Perforce) GetFile(depotFile string, rev int) (tempFile string, fileName
 	return tempFile, fileName, nil // everything is fine returns file and file name
 }
 
-// GetHeadRev()
-//	Get from P4 the head revision number of a file
-// 	depotFileName: file path and name in P4
-func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
-	p.logThis(fmt.Sprintf("GetHeadRev(%s)",depotFileName))
-
-	var out []byte
-
-	if len(p.user) > 0 {
-		// fmt.Printf(p4Cmd + " -u " + user + " files " + " " + depotFile + "\n")
-		out, err = exec.Command(p.p4Cmd, "-u", p.user, "files", depotFileName).CombinedOutput()
-		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
-	} else {
-		//fmt.Printf(p.p4Cmd  + " files " + " " + depotFileName + "\n")
-		out, err = exec.Command(p.p4Cmd, "files", depotFileName).CombinedOutput()
-		// out, err := exec.Command(p.p4Cmd, "info").Output()
-	}
-	if err != nil {
-		return 0, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
-	}
-
-	p.logThis(fmt.Sprintf("	received from P4: %s", out))
-
-	// Read version
-	// e.g. //Project/dev/localization/afile_bulgarian.txt#8 - edit change 4924099 (utf16)
-	idxBeg := strings.LastIndex(string(out), "#") + len("#")
-	idxEnd := strings.LastIndex(string(out), " - ")
-	// Check response to prevent out of bound index
-	if idxBeg <= -1 || idxEnd <= -1 || idxBeg >= idxEnd {
-		return 0, errors.New(fmt.Sprintf("Format error in P4 response: %s  %v", string(out), err))
-	}
-	sRev := string(out[idxBeg:idxEnd])
-
-	p.logThis(fmt.Sprintf("	Revision: %s", sRev))
-
-	rev, err = strconv.Atoi(sRev) // Check format
-	if err != nil {
-		return 0, errors.New(fmt.Sprintf("Format error conv to number: %v", err))
-	}
-
-	return rev, nil
+type T_FilesDetails struct {
+	DepotfileLoc	string
+	HeadRevision	int
+	Action				string	// Action taken at hte head
+	ChangeList		int
+	FileType			string
 }
 
-
-// CheckFileExitsInDepot()
-//	Check if a path exists in the depot.
+// GetP4Files()
+//	Get all the info returned by "p4 files" in a slice.
 //	Exclude deleted, purged, or archived files. The files that remain
 //	are those available for syncing or integration.
-//	Similar to GetHeadRev() except that the file not existing is not an error.
-// 	depotFileName: file path and name in P4
-func (p *Perforce) CheckFileExitsInDepot(depotFileName string) (exists bool, err error) {
-	p.logThis(fmt.Sprintf("CheckFileExitsInDepot(%s)",depotFileName))
+// 	depotFilePattern: file path and name or pattern in P4.
+//										May return several matches.
+//  Returns a slice with 1 line of details per file. If empty, means no match. Doesn't return an error!
+func (p *Perforce) GetP4Files(depotFilePattern string) (details []T_FilesDetails, err error) {
+	p.logThis(fmt.Sprintf("GetP4Files(%s)",depotFilePattern))
 
 	var out []byte
 
 	if len(p.user) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + " files -e" + " " + depotFile + "\n")
-		out, err = exec.Command(p.p4Cmd, "-u", p.user, "files", "-e", depotFileName).CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "-u", p.user, "files", "-e", depotFilePattern).CombinedOutput()
 		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
 	} else {
 		//fmt.Printf(p.p4Cmd  + " files -e" + " " + depotFileName + "\n")
-		out, err = exec.Command(p.p4Cmd, "files", "-e", depotFileName).CombinedOutput()
+		out, err = exec.Command(p.p4Cmd, "files", "-e", depotFilePattern).CombinedOutput()
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
-		return false, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+		return details, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
 	}
 
 	p.logThis(fmt.Sprintf("	received from P4: %s", out))
 
-	// Read version
-	// e.g. //Project/dev/localization/afile_bulgarian.txt#8 - edit change 4924099 (utf16)
-	idxBeg := strings.LastIndex(string(out), "#") + len("#")
-	idxEnd := strings.LastIndex(string(out), " - ")
-	// Check response to prevent out of bound index
-	if idxBeg <= -1 || idxEnd <= -1 || idxBeg >= idxEnd {
-		return false, errors.New(fmt.Sprintf("Format error in P4 response: %s  %v", string(out), err))
+	// Parse response
+	pattern, err := regexp.Compile(`(?m)^(//.*)#([0-9]*) - ([a-z]*) change ([0-9]*) \((.*)\)$`)
+	if err != nil {
+		return details, errors.New(fmt.Sprintf("Regex compile error: %v", err))
 	}
-	sRev := string(out[idxBeg:idxEnd])
 
-	p.logThis(fmt.Sprintf("	Revision: %s", sRev))
+	list := pattern.FindAllSubmatch(out, -1)
+
+	for _, line := range list {
+		if len(list) < 6 {
+			return details, errors.New(fmt.Sprintf("Parsing error - %d field found in %v ", len(list), line))
+		}
+
+		var det T_FilesDetails
+		det.DepotfileLoc = string(line[1])
+		rev, err := strconv.Atoi(string(line[2])) // Check format
+		if err != nil {
+			return details, errors.New(fmt.Sprintf("Format error conv to number: %v", err))
+		}
+		det.HeadRevision = rev
+		det.Action       = string(line[3])
+		cl, err := strconv.Atoi(string(line[4])) // Check format
+		if err != nil {
+			return details, errors.New(fmt.Sprintf("Format error conv to number: %v", err))
+		}
+		det.ChangeList   = cl
+		det.FileType     = string(line[3])
+
+		details = append(details,det)
+	}
+
+	return details, nil
+}
+
+// GetHeadRev()
+//	Get from P4 the head revision number of a file from depot
+// 	depotFileName: file path and name in P4
+//	If file is not found returns rev negative
+//	err not nil if processing error
+func (p *Perforce) GetHeadRev(depotFileName string) (rev int, err error) {
+	p.logThis(fmt.Sprintf("GetHeadRev(%s)",depotFileName))
+
+	res, err := p.GetP4Files(depotFileName)
+
+	if len(res) > 0 {
+		rev = res[0].HeadRevision
+	} else {
+		if err != nil{
+			rev = -1		// File not found
+		}
+	}
+
+	return rev, err
+}
 
 
-	return true, nil
+// CheckFileExitsInDepot()
+//	Check if a path exists in the depot.
+// 	depotFileName: file path and name in P4
+//	Returns a boolean and err.
+func (p *Perforce) CheckFileExitsInDepot(depotFileName string) (exists bool, err error) {
+	p.logThis(fmt.Sprintf("CheckFileExitsInDepot(%s)",depotFileName))
+
+	res, err := p.GetP4Files(depotFileName)
+
+	if len(res) > 0 {
+		exists = true
+	}
+
+	return exists, err
 }
 
 
