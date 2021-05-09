@@ -154,6 +154,11 @@ func (p *Perforce) GetP4Files(depotFilePattern string) (details []T_FilesDetails
 	p.logThis(fmt.Sprintf("	received from P4: %s", out))
 
 	// Parse response
+
+	if (strings.HasSuffix(strings.TrimRight(string(out),"\t\r\n "),"no such file(s).")) {
+		return details, nil // If p4 returns that file not found, skip the rest and return empty list but no error.
+	}
+
 	pattern, err := regexp.Compile(`(?m)^(//.*)#([0-9]*) - ([a-z]*) change ([0-9]*) \((.*)\)$`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("Regex compile error: %v", err))
@@ -162,8 +167,8 @@ func (p *Perforce) GetP4Files(depotFilePattern string) (details []T_FilesDetails
 	list := pattern.FindAllSubmatch(out, -1)
 
 	for _, line := range list {
-		if len(list) < 6 {
-			return details, errors.New(fmt.Sprintf("Parsing error - %d field found in %v ", len(list), line))
+		if len(line) < 6 {
+			return details, errors.New(fmt.Sprintf("Parsing error - %d field found in %s ", len(line), line))
 		}
 
 		var det T_FilesDetails
@@ -179,7 +184,7 @@ func (p *Perforce) GetP4Files(depotFilePattern string) (details []T_FilesDetails
 			return details, errors.New(fmt.Sprintf("Format error conv to number: %v", err))
 		}
 		det.ChangeList   = cl
-		det.FileType     = string(line[3])
+		det.FileType     = string(line[5])
 
 		details = append(details,det)
 	}
@@ -277,6 +282,10 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 	}
 
 	// Parse response
+	if (strings.HasSuffix(strings.TrimRight(string(out),"\t\r\n "),"no such changelist.")) {
+		return details, errors.New(fmt.Sprintf("No such change list: %d",changeList)) // If p4 returns that cl does not exit, skip the rest and returns an error.
+	}
+
 	pattern, err := regexp.Compile(`(?m)^Change ([0-9]*) by ([^ @]*)@([^ @]*) on ([0-9/]* [0-9:]*)([a-z\* ]*)[\r\n]*^((.|\r|\n)*[\r\n]*)^Affected files ...[\r\n]*`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("Regex compile error: %v", err))
