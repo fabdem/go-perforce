@@ -154,12 +154,11 @@ func (p *Perforce) GetP4Files(depotFilePattern string) (details []T_FilesDetails
 	p.logThis(fmt.Sprintf("	received from P4: %s", out))
 
 	// Parse response
-
 	if (strings.HasSuffix(strings.TrimRight(string(out),"\t\r\n "),"no such file(s).")) {
 		return details, nil // If p4 returns that file not found, skip the rest and return empty list but no error.
 	}
 
-	pattern, err := regexp.Compile(`(?m)^(//.*)#([0-9]*) - ([a-z]*) change ([0-9]*) \((.*)\)$`)
+	pattern, err := regexp.Compile(`(?m)^(//.*)#([0-9]*) - ([a-z]*) change ([0-9]*) \((.*)\)[\r\n]*`)
 	if err != nil {
 		return details, errors.New(fmt.Sprintf("Regex compile error: %v", err))
 	}
