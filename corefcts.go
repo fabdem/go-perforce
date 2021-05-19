@@ -236,7 +236,7 @@ func (p *Perforce) CheckFileExitsInDepot(depotFileName string) (exists bool, err
 // 	Input:
 //		- Change List number
 //  Return:
-//		- a map of files (depot path and name) and rev numbers
+//		- a map of files (depot path and name) and rev numbers or nil if CL empty
 //		- CL's user and workspace for sanity check
 //		- err code, nil if okay
 /*
@@ -315,7 +315,8 @@ func (p *Perforce) GetCLContent(changeList int) (details T_CLDetails, err error)
 	}
 	idxs := pattern.FindSubmatchIndex(out)
 	if len(idxs) < 3 {
-		return details, errors.New(fmt.Sprintf("Parsing CL - can't find a list of files"))
+		// return details, errors.New(fmt.Sprintf("Parsing CL - can't find a list of files"))
+		return details, nil  // Empty change list
 	}
 	// fmt.Printf("match=%s\n", out[idxs[2]:idxs[3]])
 
