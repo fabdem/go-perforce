@@ -140,12 +140,12 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 		return r, errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
 	}
 	if len(p.user) > 0 {
-		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -ds " + " " + fileInDepot + "\n")
+		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -dls " + " " + fileInDepot + "\n")
 		out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "diff", option, fileInDepot).CombinedOutput()
 		//fmt.Printf("P4 command line result - err=%s\n out=%s\n", err, out)
 	} else {
-		// fmt.Printf(p4Cmd + " -c " + workspace + " diff -ds " + " " + fileInDepot + "\n")
-		out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "diff", "option", fileInDepot).CombinedOutput()
+		// fmt.Printf(p4Cmd + " -c " + workspace + " diff -dls " + " " + fileInDepot + "\n")
+		out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "diff", option, fileInDepot).CombinedOutput()
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
