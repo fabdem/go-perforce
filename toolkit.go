@@ -5,13 +5,10 @@ package perforce
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	// "path/filepath"
-	// "regexp"
 	"regexp"
 	"strconv"
 	"strings"
@@ -80,7 +77,7 @@ func (p *Perforce) DiffHRvsWS(algo string, depotFile string) (res T_DiffRes, err
 		}
 
 	default:
-		return res, errors.New(fmt.Sprintf("DiffHRvsWS() - Invalid algorithm name: %s", algo))
+		return res, fmt.Errorf("DiffHRvsWS() - Invalid algorithm name: %s", algo)
 	}
 
 	res.FileHR = depotFile
@@ -137,7 +134,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 	}
 
 	if len(p.workspace) <= 0 {
-		return r, errors.New(fmt.Sprintf("P4 command line error - a workspace needs to be defined"))
+		return r, fmt.Errorf("P4 command line error - a workspace needs to be defined")
 	}
 	if len(p.user) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + " -c " + workspace + " diff -dls " + " " + fileInDepot + "\n")
@@ -149,7 +146,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 		// out, err := exec.Command(p.p4Cmd, "info").Output()
 	}
 	if err != nil {
-		return r, errors.New(fmt.Sprintf("P4 command line error %v  out=%s", err, out))
+		return r, fmt.Errorf("P4 command line error %v  out=%s", err, out)
 	}
 
 	p.logThis(fmt.Sprintf("	Diff response= %s", out))
@@ -159,7 +156,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 	var getPattern = regexp.MustCompile(`(?m)(//.*?\.\S*) - (.*?) ====.*\nadd ([0-9]+) chunks ([0-9]+) lines.*\ndeleted ([0-9]+) chunks ([0-9]+) lines.*\nchanged ([0-9]+) chunks ([0-9]+) / ([0-9]+) lines`)
 	groups := getPattern.FindAllStringSubmatch(string(out), -1)
 	if groups == nil || len(groups[0]) < 10 {
-		return r, errors.New(fmt.Sprintf("P4 parsing error or unexpected response. Expected nb matches is 10 but current matches is %d", len(groups[0])))
+		return r, fmt.Errorf("P4 parsing error or unexpected response. Expected nb matches is 10 but current matches is %d", len(groups[0]))
 	}
 
 	fileHR := groups[0][1]
@@ -176,7 +173,7 @@ func (p *Perforce) p4DiffHRvsWS(fileInDepot string, fileInWS string) (r T_DiffRe
 	// fmt.Printf("in toolkit changedLines=%d\n", changedLines)
 
 	if (err1 != nil) || (err2 != nil) || (err3 != nil) {
-		return r, errors.New(fmt.Sprintf("5 - P4 command line - unexpected response=%s\n", out))
+		return r, fmt.Errorf("5 - P4 command line - unexpected response=%s\n", out)
 	}
 
 	r.FileHR = fileHR
@@ -231,12 +228,12 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 	tempHR, fileHR, err := p.GetFile(fileInDepot, 0)
 	p.logThis(fmt.Sprintf("	Head Rev=%s", fileHR))
 	if err != nil {
-		return r, errors.New(fmt.Sprintf("Error getting head rev: %s", fileHR))
+		return r, fmt.Errorf("Error getting head rev: %s", fileHR)
 	}
 	//tempName := tempHR.Name()
 	tempf, err := os.Open(tempHR)
 	if err != nil {
-		return r, errors.New(fmt.Sprintf("Error getting head rev: %s", tempHR))
+		return r, fmt.Errorf("Error getting head rev: %s", tempHR)
 	}
 	defer tempf.Close()
 
@@ -256,7 +253,7 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 	}
 	p.logThis(fmt.Sprintf("	Head rev file - nb lines read %d)", r.NbLinesHR))
 	if err := scanner.Err(); err != nil {
-		return r, errors.New(fmt.Sprintf("Error parsing head rev file: %s", fileInDepot))
+		return r, fmt.Errorf("Error parsing head rev file: %s", fileInDepot)
 	}
 
 	//	Read workspace and compare
@@ -281,7 +278,7 @@ func (p *Perforce) customDiffHRvsWS(fileInDepot string, fileInWS string) (r T_Di
 	}
 	p.logThis(fmt.Sprintf("	Workspace file - nb lines read %d)", r.NbLinesWS))
 	if err := scanner.Err(); err != nil {
-		return r, errors.New(fmt.Sprintf("Error parsing the workspace file: %s", fileInWS))
+		return r, fmt.Errorf("Error parsing the workspace file: %s", fileInWS)
 	}
 
 	// Check what's left in the map

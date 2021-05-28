@@ -10,7 +10,6 @@ package perforce
 // New()                create an instance/workspace
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -39,7 +38,7 @@ func New(user string, workspace string) (*Perforce, error) {
 	// Try accessing the command p4 to make sure it is installed and can be called
 	p.p4Cmd, err = exec.LookPath("p4")
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Unable to find path to p4 command - %v", err))
+		return nil, fmt.Errorf("Unable to find path to p4 command - %v", err)
 	}
 	p.debug = false // default
 	return p, nil
@@ -89,7 +88,7 @@ func (p *Perforce) P4Info() (output string, err error) {
 	p.logThis("\nP4Info()")
 	out, err := exec.Command(p.p4Cmd, "info").CombinedOutput()
 	if err != nil {
-		return "", errors.New(fmt.Sprintf("\"p4 info\" exec error: %v %s", err, out))
+		return "", fmt.Errorf("\"p4 info\" exec error: %v %s", err, out)
 	}
 	return string(out), nil
 }
