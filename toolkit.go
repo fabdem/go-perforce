@@ -29,7 +29,7 @@ type T_DiffRes struct {
 // DiffHRvsWS()
 //
 // Implementation of a diff between head revision vs workspace.
-//   - Two algos: one based on p4 diff and one custom (faster?)
+//   - Two algos: one based on p4 diff and one custom (token based, unordered)
 //   - Get the workspace files
 //   - Counts number of lines and report if encoding is utf16 and line endings are cr/lf
 //     If it's the case the number of added and removed lines will have to be divided by 2.

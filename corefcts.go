@@ -4,6 +4,7 @@ package perforce
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -578,7 +579,8 @@ type T_CLSpecProperties struct {
 	Files map[string]string // File/action. What opened files from the default changelist are to be added
 	// to this changelist.  You may delete files from this list.
 	// (New changelists only.)
-	Form string // Form as it was received
+	Eol 				string // Detect what kind of end of line we receive from the server.
+	Form 				string // Form as it was received
 }
 
 
@@ -607,6 +609,13 @@ func (p *Perforce) GetCLSpecProperties(cl int) (properties T_CLSpecProperties, e
 	}
 
 	// Parsing result
+
+	// Detect what kind of end of line we receive from the perforce server
+	if strings.Count(string(out),"\n") >= strings.Count(string(out),"\r\n") {
+		properties.Eol = "\n"
+	} else {
+		properties.Eol = "\r\n"
+	}
 
 	// Get Change list number - check 1st if it's a 'new' changelist
 	pattern, err := regexp.Compile(`(?m)[\n\r]*^Change:\t(new|[0-9]*)[\n\r]*`)
@@ -652,7 +661,7 @@ func (p *Perforce) GetCLSpecProperties(cl int) (properties T_CLSpecProperties, e
 	}
 	matches = pattern.FindSubmatch(out)
 	if len(matches) > 0 {
-		properties.Client = string(matches[1])
+		properties.User = string(matches[1])
 	}
 
 	// Get Status
@@ -683,7 +692,10 @@ func (p *Perforce) GetCLSpecProperties(cl int) (properties T_CLSpecProperties, e
 
 	matches = pattern.FindSubmatch(out)
 	if len(matches) > 0 {
-		properties.Description = string(matches[1])
+		str := strings.TrimPrefix(string(matches[1]), "\t") // Remove the leading tabs
+		str  = strings.ReplaceAll(str, "\r\n\t", "\r\n")		// windows
+		str  = strings.ReplaceAll(str, "\n\t", "\n")				// linux
+		properties.Description = str
 	}
 
 	// Get Files
@@ -717,12 +729,98 @@ func (p *Perforce) GetCLSpecProperties(cl int) (properties T_CLSpecProperties, e
 	return properties, nil
 }
 
-/*
+
 // PutCLSpecProperties()
 //	Write a CL specification properties using a p4 change -i command.
 //	Get properties from a T_CLSpecProperties var
 //	Returns a changelist number
 //
-func (p *Perforce) GetCLSpecProperties(properties T_CLSpecProperties) (CL int, err error) {
+func (p *Perforce) PutCLSpecProperties(properties T_CLSpecProperties) (CL int, err error) {
+	p.logThis(fmt.Sprintf("PutCLSpecProperties()"))
+
+  var cmd *exec.Cmd
+	if len(p.user) > 0 {
+		cmd = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "change", "-i")
+		// out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "change", "-o", sCL).CombinedOutput()
+	} else {
+		cmd = exec.Command(p.p4Cmd, "-u", "-c", p.workspace, "change", "-i")
+	}
+	if err != nil {
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return 0, fmt.Errorf("P4 command line error (pipe) %v", err)
+	}
+
+	// Build and write the CL specification to stdin
+	go func() {
+		defer stdin.Close()
+		eol := properties.Eol
+		if properties.ChangeList == -1 {
+			io.WriteString(stdin, eol + "Change:\t" + "new" + eol)
+		} else {
+			io.WriteString(stdin, eol + "Change:\t" + strconv.Itoa(properties.ChangeList) + "new" + eol)
+		}
+		if len(properties.Date) > 0 {
+			io.WriteString(stdin, "Date:\t" + properties.Date + eol)
+		}
+		if len(properties.Client) > 0 {
+			io.WriteString(stdin, "Client:\t" + properties.Client + eol)
+		}
+		if len(properties.User) > 0 {
+			io.WriteString(stdin, "User:\t" + properties.User + eol)
+		}
+		if len(properties.Status) > 0 {
+			io.WriteString(stdin, "Status:\t" + properties.Status + eol)
+		}
+		if len(properties.Type) > 0 {
+			io.WriteString(stdin, "Type:\t" + properties.Type + eol)
+		}
+		descr := "\t" + properties.Description  // Prefix each line with a tab
+		descr = strings.ReplaceAll(descr, "\n", "\n\t")
+		descr = strings.TrimSuffix(descr, "\t")
+		io.WriteString(stdin, "Description:" + eol)
+		io.WriteString(stdin, descr + eol)
+		if len(properties.Files) > 0 {
+			io.WriteString(stdin, "Files:" + eol)
+			for k, v := range properties.Files {
+				io.WriteString(stdin, "\t" + k + " #" + v + eol)
+			}
+		}
+	}()
+
+	// Read response string
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("P4 command line error (CombinedOutput) %v - out=%s", err, out)
+	}
+
+	// Parse response
+	// "Change 1234567 created with 23 open file(s)." is good anything else error
+	pattern, err := regexp.Compile(`^Change ([0-9]*) created with ([0-9]*) open file\(s\)`)
+	if err != nil {
+		return 0, fmt.Errorf("Regex compile error: %v", err)
+	}
+
+	matches := pattern.FindSubmatch(out)
+	if len(matches) < 3 {
+		return 0, fmt.Errorf("Error unexpected response. Received %s", out)
+	}
+
+	cl, err := strconv.Atoi(string(matches[1]))
+	if err != nil {
+		return 0, fmt.Errorf("Error changelist format: %v, received %s", err, out)
+	}
+	p.logThis(fmt.Sprintf("Changelist#: %d", cl))
+	nbfiles, err :=  strconv.Atoi(string(matches[2]))
+	if err != nil { // just a warning since a apparenlty valid cl has been received
+		p.logThis(fmt.Sprintf("Warning - nb files format incorrect: %v, received %s", err, out))
+	} else {
+		if nbfiles != len(properties.Files) { // sanity check
+			p.logThis(fmt.Sprintf("Warning - nb files in response doesn't match changelist: %d vs %d", nbfiles, len(properties.Files)))
+		}
+	}
+
+	return cl, nil
 }
-*/
