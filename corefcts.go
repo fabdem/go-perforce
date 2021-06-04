@@ -746,6 +746,7 @@ func (p *Perforce) PutCLSpecProperties(properties T_CLSpecProperties) (CL int, e
 		cmd = exec.Command(p.p4Cmd, "-u", "-c", p.workspace, "change", "-i")
 	}
 	if err != nil {
+		return 0, fmt.Errorf("P4 command line error %v  cmd=%s", err, cmd)
 	}
 
 	stdin, err := cmd.StdinPipe()
@@ -797,14 +798,16 @@ func (p *Perforce) PutCLSpecProperties(properties T_CLSpecProperties) (CL int, e
 	}
 
 	// Parse response
-	// "Change 1234567 created with 23 open file(s)." is good anything else error
-	pattern, err := regexp.Compile(`^Change ([0-9]*) created with ([0-9]*) open file\(s\)`)
+	// 			"Change 1234567 created with 23 open file(s)."
+	//  or	"Change 1234567 created" if empty change list
+	// pattern, err := regexp.Compile(`^Change ([0-9]*) created with ([0-9]*) open file\(s\)`)
+	pattern, err := regexp.Compile(`^Change ([0-9]*) created`)
 	if err != nil {
 		return 0, fmt.Errorf("Regex compile error: %v", err)
 	}
 
 	matches := pattern.FindSubmatch(out)
-	if len(matches) < 3 {
+	if len(matches) < 2 {
 		return 0, fmt.Errorf("Error unexpected response. Received %s", out)
 	}
 
@@ -813,14 +816,105 @@ func (p *Perforce) PutCLSpecProperties(properties T_CLSpecProperties) (CL int, e
 		return 0, fmt.Errorf("Error changelist format: %v, received %s", err, out)
 	}
 	p.logThis(fmt.Sprintf("Changelist#: %d", cl))
-	nbfiles, err :=  strconv.Atoi(string(matches[2]))
-	if err != nil { // just a warning since a apparenlty valid cl has been received
-		p.logThis(fmt.Sprintf("Warning - nb files format incorrect: %v, received %s", err, out))
-	} else {
-		if nbfiles != len(properties.Files) { // sanity check
-			p.logThis(fmt.Sprintf("Warning - nb files in response doesn't match changelist: %d vs %d", nbfiles, len(properties.Files)))
+
+	// Get file count
+	pattern, err = regexp.Compile(`^.* with ([0-9]*) open file\(s\)`)
+	if err != nil {
+		return 0, fmt.Errorf("Regex compile error: %v", err)
+	}
+
+	nbfiles := 0
+	matches = pattern.FindSubmatch(out)
+	if len(matches) >= 2 {
+		nbfiles, err =  strconv.Atoi(string(matches[1]))
+		if err != nil { // just a warning since a apparenlty valid cl has been received
+			p.logThis(fmt.Sprintf("Warning - nb files format incorrect: %v, received %s", err, out))
 		}
 	}
 
+	if nbfiles != len(properties.Files) { // sanity check
+		p.logThis(fmt.Sprintf("Warning - nb files in response doesn't match changelist: %d vs %d", nbfiles, len(properties.Files)))
+	}
+
+	return cl, nil
+}
+
+
+// SubmitCL()
+//	Submit a changelist.
+//	In:
+//		- changelist number - 0 means default changelist
+//		- description (optional and valid only when changelist ==0)
+//	If changelist == 0 submit the default changelist
+//  If description not nil and changelist == 0 do a submit -d
+//  If cl != 0 and description not nil, ignore description
+//	Returns a new changelist number or an error.
+//
+func (p *Perforce) SubmitCL(changelist int, description string) (newChangelist int, err error) {
+	p.logThis(fmt.Sprintf("SubmitCL(%d, %s)",changelist, description))
+
+	var opt string
+	if changelist > 0 {
+		opt = "-c" + strconv.Itoa(changelist)
+	} else {
+		if len(description) > 0 {
+			opt = "-d " + description
+		}
+	}
+
+	// Submit CL
+	var out []byte
+	if len(p.user) > 0 {
+		if len(opt) > 0 {
+			out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "submit", opt).CombinedOutput()
+		} else {
+			out, err = exec.Command(p.p4Cmd, "-u", p.user, "-c", p.workspace, "submit").CombinedOutput()
+		}
+	} else {
+		if len(opt) > 0 {
+			out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "submit", opt).CombinedOutput()
+		} else {
+			out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "submit").CombinedOutput()
+		}
+	}
+	if err != nil {
+		return 0, fmt.Errorf("P4 command line error %v  out=%s", err, out)
+	}
+
+	// Parse response
+	// 2 responses possible depending whether submitting default or a pending cl:
+	// "Change 5008806 submitted." or "Change 4990122 renamed change 4990128 and submitted."
+	// Anything else raise an error.
+
+	// trying to parse a default cl submit response:
+	pattern, err := regexp.Compile(`(?m)^Change ([0-9]*) submitted.`)
+	if err != nil {
+		return 0, fmt.Errorf("Regex compile error: %v", err)
+	}
+
+	matches := pattern.FindSubmatch(out)
+	if len(matches) >= 2 {
+		cl, err := strconv.Atoi(string(matches[1]))
+		if err != nil {
+			return 0, fmt.Errorf("Error changelist format: %v, received %s", err, out)
+		}
+		return cl, nil
+	}
+
+	// it's not a default cl response so trying to parse the other type
+	pattern, err = regexp.Compile(`(?m)^Change ([0-9]*) renamed change ([0-9]*) and submitted.`)
+	if err != nil {
+		return 0, fmt.Errorf("Regex compile error: %v", err)
+	}
+
+	matches = pattern.FindSubmatch(out)
+	if len(matches) < 3 {
+		return 0, fmt.Errorf("Error parsing submit response: %v, received %s", err, out)
+	}
+
+	cl, err := strconv.Atoi(string(matches[2]))
+	if err != nil {
+		return 0, fmt.Errorf("Error changelist format: %v, received %s", err, out)
+	}
 	return cl, nil
 }
