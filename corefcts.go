@@ -604,6 +604,9 @@ func (p *Perforce) GetCLSpecProperties(cl int) (properties T_CLSpecProperties, e
 	} else {
 		out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "change", "-o", sCL).CombinedOutput()
 	}
+
+	p.logThis(fmt.Sprintf("P4 response: %s",out))
+
 	if err != nil {
 		return properties, fmt.Errorf("P4 command line error %v  out=%s", err, out)
 	}
@@ -793,6 +796,9 @@ func (p *Perforce) PutCLSpecProperties(properties T_CLSpecProperties) (CL int, e
 
 	// Read response string
 	out, err := cmd.CombinedOutput()
+
+	p.logThis(fmt.Sprintf("P4 response: %s",out))
+
 	if err != nil {
 		return 0, fmt.Errorf("P4 command line error (CombinedOutput) %v - out=%s", err, out)
 	}
@@ -845,10 +851,11 @@ func (p *Perforce) PutCLSpecProperties(properties T_CLSpecProperties) (CL int, e
 //	In:
 //		- changelist number - 0 means default changelist
 //		- description (optional and valid only when changelist ==0)
-//	If changelist == 0 submit the default changelist
-//  If description not nil and changelist == 0 do a submit -d
-//  If cl != 0 and description not nil, ignore description
+//		If changelist == 0 submit the default changelist
+//  	If description not nil and changelist == 0 do a submit -d
+//  	If cl != 0 and description not nil, ignore description
 //	Returns a new changelist number or an error.
+//		- if cl==0 and no error means that the CL was empty.
 //
 func (p *Perforce) SubmitCL(changelist int, description string) (newChangelist int, err error) {
 	p.logThis(fmt.Sprintf("SubmitCL(%d, %s)",changelist, description))
@@ -857,11 +864,9 @@ func (p *Perforce) SubmitCL(changelist int, description string) (newChangelist i
 	if changelist > 0 {
 		opt = "-c" + strconv.Itoa(changelist)
 	} else {
-		if len(description) > 0 {
-			opt = "-d " + description
-		}
+		opt = "-d " + description
 	}
-
+	// fmt.Printf("Opt=%s\n",opt)
 	// Submit CL
 	var out []byte
 	if len(p.user) > 0 {
@@ -877,8 +882,16 @@ func (p *Perforce) SubmitCL(changelist int, description string) (newChangelist i
 			out, err = exec.Command(p.p4Cmd, "-c", p.workspace, "submit").CombinedOutput()
 		}
 	}
+
+	p.logThis(fmt.Sprintf("P4 response: %s",out))
+
 	if err != nil {
-		return 0, fmt.Errorf("P4 command line error %v  out=%s", err, out)
+		if strings.HasPrefix(string(out), "No files to submit from the default changelist.") ||
+			 strings.HasSuffix(strings.TrimRight(string(out),"\r\n\t "), "No files to submit.") {  //Submitting change 7654321\n No files to submit.
+			return 0, nil		// OK the CL was empty
+		} else {
+			return 0, fmt.Errorf("P4 command line error %v  out=%s", err, out)
+		}
 	}
 
 	// Parse response
@@ -898,7 +911,7 @@ func (p *Perforce) SubmitCL(changelist int, description string) (newChangelist i
 		if err != nil {
 			return 0, fmt.Errorf("Error changelist format: %v, received %s", err, out)
 		}
-		return cl, nil
+		return cl, nil     // OK
 	}
 
 	// it's not a default cl response so trying to parse the other type
@@ -916,5 +929,5 @@ func (p *Perforce) SubmitCL(changelist int, description string) (newChangelist i
 	if err != nil {
 		return 0, fmt.Errorf("Error changelist format: %v, received %s", err, out)
 	}
-	return cl, nil
+	return cl, nil		// OK
 }
